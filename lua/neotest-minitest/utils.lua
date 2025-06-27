@@ -46,10 +46,29 @@ M.full_test_name = function(tree)
   if not parent_tree or parent_tree:data().type == "file" then return name end
   local parent_name = parent_tree:data().name
 
-  -- For rails and spec tests
-  if not name:match("^test_") then name = "test_" .. name end
+  -- Check if we have a context (parent namespace within the class)
+  local context = ""
+  local current = tree:parent()
+  while current and current:data().type ~= "file" do
+    if current:data().type == "namespace" and current:parent() and current:parent():data().type ~= "file" then
+      context = current:data().name .. " "
+      break
+    end
+    current = current:parent()
+  end
 
-  return parent_name .. "#" .. name:gsub(" ", "_")
+  -- If we have a context, use the DSL format: ClassName#test_: context description
+  -- Otherwise, use the traditional format: ClassName#test_method_name
+  if context ~= "" then
+    return parent_name .. "#test_: " .. context .. name
+  else
+    -- For regular DSL tests without context, convert to method name format
+    local method_name = name
+    if not method_name:match("^test_") then
+      method_name = "test_" .. method_name:gsub(" ", "_")
+    end
+    return parent_name .. "#" .. method_name
+  end
 end
 
 M.escaped_full_test_name = function(tree)

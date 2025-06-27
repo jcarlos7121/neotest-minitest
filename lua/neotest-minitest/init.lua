@@ -48,9 +48,9 @@ function NeotestAdapter.discover_positions(file_path)
 
     ; System tests that inherit from ApplicationSystemTestCase
     ((
-        class 
+        class
         name: [
-          (constant) @namespace.name 
+          (constant) @namespace.name
           (scope_resolution scope: (constant) name: (constant) @namespace.name)
         ]
         (superclass) @superclass (#match? @superclass "(ApplicationSystemTestCase)$" )
@@ -75,6 +75,12 @@ function NeotestAdapter.discover_positions(file_path)
     ((
       call
       method: (identifier) @func_name (#match? @func_name "^(test)$")
+      arguments: (argument_list (string (string_content) @test.name))
+    )) @test.definition
+
+    ((
+      call
+      method: (identifier) @func_name (#match? @func_name "^(should)$")
       arguments: (argument_list (string (string_content) @test.name))
     )) @test.definition
   ]]
@@ -199,7 +205,11 @@ end
 
 function NeotestAdapter._parse_test_output(output, name_mappings)
   local results = {}
-  local test_pattern = "(%w+#[%S]+)%s*=%s*[%d.]+%s*s%s*=%s*([FE.])"
+  -- Handle two different Minitest output formats:
+  -- 1. ClassName#test_: context description [- hash].  = time = result (for DSL with contexts)
+  -- 2. ClassName#test_method_name = time = result (for regular DSL tests)
+  local test_pattern_dsl = "([%w:]+#test_: [^%.]+)%.%s*=%s*[%d.]+%s*s%s*=%s*([FE.])"
+  local test_pattern_method = "([%w:]+#test_[%w_]+)%s*=%s*[%d.]+%s*s%s*=%s*([FE.])"
   local failure_pattern = "Failure:%s*([%w#_:]+)%s*%[([^%]]+)%]:%s*Expected:%s*(.-)%s*Actual:%s*(.-)%s"
   local error_pattern = "Error:%s*([%w:#_]+):%s*(.-)\n[%w%W]-%.rb:(%d+):"
   local traceback_pattern = "(%d+:[^:]+:%d+:in `[^']+')%s+([^:]+):(%d+):(in `[^']+':[^\n]+)"
@@ -219,12 +229,23 @@ function NeotestAdapter._parse_test_output(output, name_mappings)
     end
   end
 
-  for test_name, status in string.gmatch(output, test_pattern) do
+  -- Try both patterns to match different test formats
+  for test_name, status in string.gmatch(output, test_pattern_dsl) do
     local pos_id = name_mappings[test_name]
-
-    if pos_id then results[pos_id] = {
-      status = status == "." and "passed" or "failed",
-    } end
+    if pos_id then 
+      results[pos_id] = {
+        status = status == "." and "passed" or "failed",
+      } 
+    end
+  end
+  
+  for test_name, status in string.gmatch(output, test_pattern_method) do
+    local pos_id = name_mappings[test_name]
+    if pos_id then 
+      results[pos_id] = {
+        status = status == "." and "passed" or "failed",
+      } 
+    end
   end
   for test_name, filepath, expected, actual in string.gmatch(output, failure_pattern) do
     test_name = utils.replace_module_namespace(test_name)
