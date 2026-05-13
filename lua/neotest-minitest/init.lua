@@ -264,7 +264,10 @@ local iter_test_output_error = function(output)
 end
 
 local iter_test_output_status = function(output)
-  local pattern = "%s*=%s*[%d.]+%s*s%s*=%s*([FE.])"
+  -- Matches both vanilla minitest verbose output (`Class#m = 0.00 s = .`) and
+  -- minitest-reporters' default verbose output (`Class#m 0.40 = .`). The leading
+  -- `=` and the `s` time-unit suffix are optional.
+  local pattern = "%s*=?%s*[%d.]+%s*s?%s*=%s*([FE.])"
 
   -- keep track of last test result position
   local last_pos = 0

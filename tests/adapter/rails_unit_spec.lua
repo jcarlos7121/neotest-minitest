@@ -161,6 +161,30 @@ Expected: 4
       end)
     end)
 
+    describe("minitest-reporters verbose format", function()
+      local output = [[
+UserMailerTest#test_password_reset_without_patient_or_account_user 0.40 = .
+UserMailerTest#test_password_reset_with_patient_includes_account_name 0.05 = F
+
+
+Failure:
+UserMailerTest#test_password_reset_with_patient_includes_account_name [/path/to/tests/minitest_examples/rails_unit_test.rb:17]:
+Expected: "Sample Clinic account password reset request"
+  Actual: "Wrong subject"
+
+      ]]
+
+      it("parses passing and failing tests in minitest-reporters output", function()
+        local results = plugin._parse_test_output(output, {
+          ["UserMailerTest#test_password_reset_without_patient_or_account_user"] = "pos_pass",
+          ["UserMailerTest#test_password_reset_with_patient_includes_account_name"] = "pos_fail",
+        })
+
+        assert.equal("passed", results["pos_pass"].status)
+        assert.equal("failed", results["pos_fail"].status)
+      end)
+    end)
+
     describe("multiple failing tests", function()
       local output = [[
 RailsUnitTest#test_adds_two_numbers = 0.00 s = F
