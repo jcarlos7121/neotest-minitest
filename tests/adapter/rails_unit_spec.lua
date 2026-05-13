@@ -161,6 +161,71 @@ Expected: 4
       end)
     end)
 
+    describe("_make_status_stream", function()
+      local function make_output_stream(chunks)
+        local i = 0
+        return function()
+          i = i + 1
+          return chunks[i]
+        end
+      end
+
+      it("emits results as lines arrive across chunks", function()
+        local stream = plugin._make_status_stream({
+          ["UserMailerTest#test_one"] = "pos1",
+          ["UserMailerTest#test_two"] = "pos2",
+        })
+        local iter = stream(make_output_stream({
+          "UserMailerTest#test_one 0.01 = .\n",
+          "UserMailerTest#test_two 0.02 = F\n",
+        }))
+
+        assert.are.same({ pos1 = { status = "passed" } }, iter())
+        assert.are.same({ pos2 = { status = "failed" } }, iter())
+        assert.is_nil(iter())
+      end)
+
+      it("buffers partial lines across chunks", function()
+        local stream = plugin._make_status_stream({
+          ["UserMailerTest#test_split"] = "pos1",
+        })
+        local iter = stream(make_output_stream({
+          "UserMailerTest#test_sp",
+          "lit 0.01 = .\n",
+        }))
+
+        assert.are.same({}, iter())
+        assert.are.same({ pos1 = { status = "passed" } }, iter())
+      end)
+
+      it("parses vanilla minitest format as well as minitest-reporters", function()
+        local stream = plugin._make_status_stream({
+          ["UserMailerTest#test_vanilla"] = "pos1",
+          ["UserMailerTest#test_reporters"] = "pos2",
+        })
+        local iter = stream(make_output_stream({
+          "UserMailerTest#test_vanilla = 0.00 s = .\n" ..
+          "UserMailerTest#test_reporters 0.40 = .\n",
+        }))
+
+        assert.are.same({
+          pos1 = { status = "passed" },
+          pos2 = { status = "passed" },
+        }, iter())
+      end)
+
+      it("falls back to module-namespace stripping for module-prefixed test names", function()
+        local stream = plugin._make_status_stream({
+          ["UserMailerTest#test_one"] = "pos1",
+        })
+        local iter = stream(make_output_stream({
+          "Foo::Bar::UserMailerTest#test_one 0.01 = .\n",
+        }))
+
+        assert.are.same({ pos1 = { status = "passed" } }, iter())
+      end)
+    end)
+
     describe("minitest-reporters verbose format", function()
       local output = [[
 UserMailerTest#test_password_reset_without_patient_or_account_user 0.40 = .

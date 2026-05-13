@@ -141,12 +141,33 @@ function NeotestAdapter.build_spec(args)
     )
   end
 
+  -- When true, replaces config.get_test_cmd() with `bundle exec bin/rails test` for
+  -- dir runs. Set inside run_dir() if the project root contains a bin/rails stub.
+  local use_rails_test_runner = false
+
   local function run_dir()
     local tree = args.tree
     local root = tree:root():data().path
+    local rails_bin = root .. "/bin/rails"
 
-    -- This emulates an combination of Rake::TestTask with loader=:direct and
-    -- rake_test_loader
+    if vim.loop.fs_stat(rails_bin) then
+      -- Rails project: defer to `bin/rails test <files>`. This routes through
+      -- Rails' own test runner, which shares Rails boot across files, manages
+      -- fixtures, and supports parallel workers — none of which work cleanly
+      -- under bare `ruby -Itest -e '<require loop>'` once the test tree gets
+      -- past trivial size (the require-storm deadlocks against PTY in pry/
+      -- parallel-executor setup for larger Rails apps).
+      use_rails_test_runner = true
+      for _, node in tree:iter_nodes() do
+        if node:data().type == "file" then
+          table.insert(script_args, node:data().path)
+        end
+      end
+      return
+    end
+
+    -- Non-Rails project: emulate Rake::TestTask with loader=:direct and
+    -- rake_test_loader.
     table.insert(script_args, "-e")
     table.insert(script_args, "while (f = ARGV.shift) != '--'; require f; end")
 
@@ -201,11 +222,20 @@ function NeotestAdapter.build_spec(args)
 
   if position.type == "dir" then run_dir() end
 
+  local cmd_prefix
+  if use_rails_test_runner then
+    cmd_prefix = { "bundle", "exec", "bin/rails", "test" }
+  else
+    cmd_prefix = config.get_test_cmd()
+  end
+
   local command = vim.tbl_flatten({
-    config.get_test_cmd(),
+    cmd_prefix,
     script_args,
     "-v",
   })
+
+  local stream = NeotestAdapter._make_status_stream(name_mappings)
 
   if args.strategy == "dap" then
     return {
@@ -216,6 +246,7 @@ function NeotestAdapter.build_spec(args)
         name_mappings = name_mappings,
       },
       strategy = dap_strategy(command),
+      stream = stream,
     }
   else
     return {
@@ -226,6 +257,7 @@ function NeotestAdapter.build_spec(args)
         pos_id = position.id,
         name_mappings = name_mappings,
       },
+      stream = stream,
     }
   end
 end
@@ -263,11 +295,13 @@ local iter_test_output_error = function(output)
   end
 end
 
+-- Matches both vanilla minitest verbose output (`Class#m = 0.00 s = .`) and
+-- minitest-reporters' default verbose output (`Class#m 0.40 = .`). The leading
+-- `=` and the `s` time-unit suffix are optional.
+local status_line_pattern = "%s*=?%s*[%d.]+%s*s?%s*=%s*([FE.])"
+
 local iter_test_output_status = function(output)
-  -- Matches both vanilla minitest verbose output (`Class#m = 0.00 s = .`) and
-  -- minitest-reporters' default verbose output (`Class#m 0.40 = .`). The leading
-  -- `=` and the `s` time-unit suffix are optional.
-  local pattern = "%s*=?%s*[%d.]+%s*s?%s*=%s*([FE.])"
+  local pattern = status_line_pattern
 
   -- keep track of last test result position
   local last_pos = 0
@@ -368,6 +402,59 @@ function NeotestAdapter._parse_test_output(output, name_mappings)
   end
 
   return results
+end
+
+-- Builds the iterator passed as `spec.stream` to neotest's runner. Each iteration
+-- consumes the next chunk from `output_stream` (which yields stdout as the test
+-- process emits it), parses any complete lines for per-test status, and returns a
+-- partial results table. Returning nil ends the iteration (process exit / EOF).
+--
+-- Per-test errors and tracebacks are intentionally not surfaced here — they're
+-- multi-line and require the full output to parse safely. NeotestAdapter.results
+-- runs on the captured output file at process exit and fills those in.
+function NeotestAdapter._make_status_stream(name_mappings)
+  return function(output_stream)
+    local buffer = ""
+
+    return function()
+      local data = output_stream()
+      if data == nil then return nil end
+      if type(data) == "table" then data = table.concat(data, "\n") end
+
+      buffer = buffer .. data
+
+      local lines = {}
+      local pos = 1
+      while true do
+        local nl = buffer:find("\n", pos, true)
+        if not nl then break end
+        lines[#lines + 1] = buffer:sub(pos, nl - 1)
+        pos = nl + 1
+      end
+      buffer = buffer:sub(pos)
+
+      local results = {}
+      for _, raw_line in ipairs(lines) do
+        local line = utils.strip_ansi_escape_codes(raw_line)
+        local r_start, _, status = line:find(status_line_pattern)
+        if r_start and status then
+          local test_name = line:sub(1, r_start - 1)
+          local pos_id = name_mappings[test_name]
+          if not pos_id then
+            test_name = utils.replace_module_namespace(test_name)
+            pos_id = name_mappings[test_name]
+          end
+          if pos_id then
+            results[pos_id] = {
+              status = status == "." and "passed" or "failed",
+            }
+          end
+        end
+      end
+
+      return results
+    end
+  end
 end
 
 ---@async
