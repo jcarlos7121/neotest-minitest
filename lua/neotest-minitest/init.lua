@@ -96,6 +96,12 @@ function NeotestAdapter.discover_positions(file_path)
       method: (identifier) @func_name (#match? @func_name "^(it)$")
       arguments: (argument_list (string (string_content) @test.name))
     )) @test.definition
+
+    ((
+      call
+      method: (identifier) @func_name (#match? @func_name "^(should)$")
+      arguments: (argument_list (string (string_content) @test.name))
+    )) @test.definition
   ]]
 
   return lib.treesitter.parse_positions(file_path, query, {
