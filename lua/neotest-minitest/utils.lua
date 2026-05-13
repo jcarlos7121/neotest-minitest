@@ -143,6 +143,9 @@ M.get_mappings = function(tree)
 
       local full_test_name = M.full_test_name(tree)
       mappings[full_test_name] = data.id
+
+      local full_shoulda_test_name = M.full_shoulda_test_name(tree)
+      mappings[full_shoulda_test_name] = data.id
     end
 
     for _, child in ipairs(tree:children()) do
