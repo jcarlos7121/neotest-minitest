@@ -100,6 +100,33 @@ M.full_test_name = function(tree)
   return parent_name .. "#" .. name:gsub(" ", "_")
 end
 
+M.full_shoulda_test_name = function(tree)
+  local name = tree:data().name
+  local namespaces = {}
+
+  for parent_node in tree:iter_parents() do
+    local data = parent_node:data()
+    if data.type == "namespace" then
+      table.insert(namespaces, 1, data.name)
+    else
+      break
+    end
+  end
+
+  if #namespaces == 0 then return name end
+
+  local class_name = table.remove(namespaces, 1)
+
+  local chain
+  if #namespaces == 0 then
+    chain = class_name:gsub("Test$", "")
+  else
+    chain = table.concat(namespaces, " ")
+  end
+
+  return class_name .. "#test_: " .. chain .. " should " .. name .. "."
+end
+
 M.escaped_full_test_name = function(tree)
   local full_name = M.full_test_name(tree)
   return full_name:gsub("([?#])", "\\%1")

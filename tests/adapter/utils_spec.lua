@@ -141,6 +141,46 @@ describe("full_test_name", function()
   end)
 end)
 
+local function fake_node(data, parents)
+  parents = parents or {}
+  local node = {}
+  function node:data() return data end
+  function node:iter_parents()
+    local i = 0
+    return function()
+      i = i + 1
+      return parents[i]
+    end
+  end
+  return node
+end
+
+describe("full_shoulda_test_name", function()
+  it("builds the class-level form using class name minus Test suffix", function()
+    local class_ns = fake_node({ name = "ShouldaTest", type = "namespace" })
+    local test_node = fake_node({ name = "do a thing", type = "test" }, { class_ns })
+
+    assert.equal("ShouldaTest#test_: Shoulda should do a thing.", utils.full_shoulda_test_name(test_node))
+  end)
+
+  it("builds the context-nested form using the context chain", function()
+    local class_ns = fake_node({ name = "ShouldaTest", type = "namespace" })
+    local ctx_ns = fake_node({ name = "addition", type = "namespace" }, { class_ns })
+    local test_node = fake_node({ name = "add two numbers", type = "test" }, { ctx_ns, class_ns })
+
+    assert.equal("ShouldaTest#test_: addition should add two numbers.", utils.full_shoulda_test_name(test_node))
+  end)
+
+  it("joins nested context names with single spaces", function()
+    local class_ns = fake_node({ name = "ShouldaTest", type = "namespace" })
+    local outer = fake_node({ name = "outer", type = "namespace" }, { class_ns })
+    local inner = fake_node({ name = "inner", type = "namespace" }, { outer, class_ns })
+    local test_node = fake_node({ name = "X", type = "test" }, { inner, outer, class_ns })
+
+    assert.equal("ShouldaTest#test_: outer inner should X.", utils.full_shoulda_test_name(test_node))
+  end)
+end)
+
 describe("escaped_full_test_name", function()
   it("escapes # characters", function()
     local tree = Tree.from_list({
