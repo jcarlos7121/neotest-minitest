@@ -128,10 +128,17 @@ function NeotestAdapter.build_spec(args)
   local function run_by_name()
     local full_spec_name = utils.full_spec_name(args.tree)
     local full_test_name = utils.escaped_full_test_name(args.tree)
+    local full_shoulda_test_name = utils.full_shoulda_test_name(args.tree):gsub("([?])", "\\%1")
     table.insert(script_args, spec_path)
     table.insert(script_args, "--name")
     -- https://chriskottom.com/articles/command-line-flags-for-minitest-in-the-raw/
-    table.insert(script_args, "/^" .. full_spec_name .. "|" .. full_test_name .. "$/")
+    -- Shoulda-context method symbols end with a literal space (e.g. :"test_: X should Y. ").
+    -- Minitest compares the filter regex against "#{klass}##{method}", so the suffix
+    -- alternative must end with that trailing space.
+    table.insert(
+      script_args,
+      "/^" .. full_spec_name .. "|" .. full_test_name .. "|" .. full_shoulda_test_name .. " $/"
+    )
   end
 
   local function run_dir()
