@@ -100,6 +100,8 @@ M.full_test_name = function(tree)
   return parent_name .. "#" .. name:gsub(" ", "_")
 end
 
+-- Returns the shoulda-context method name WITHOUT the trailing space that's part of
+-- the Ruby symbol — callers using this for an --name regex append " $" themselves.
 M.full_shoulda_test_name = function(tree)
   local name = tree:data().name
   local namespaces = {}
@@ -130,6 +132,13 @@ end
 M.escaped_full_test_name = function(tree)
   local full_name = M.full_test_name(tree)
   return full_name:gsub("([?#])", "\\%1")
+end
+
+M.escaped_full_shoulda_test_name = function(tree)
+  -- `#` is the structural separator between class and method name, so it must remain
+  -- literal in the regex. `?` is the only regex metachar that can appear in user-authored
+  -- shoulda descriptions, so we escape it.
+  return M.full_shoulda_test_name(tree):gsub("([?])", "\\%1")
 end
 
 M.get_mappings = function(tree)

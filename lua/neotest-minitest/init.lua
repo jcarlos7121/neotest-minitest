@@ -128,7 +128,7 @@ function NeotestAdapter.build_spec(args)
   local function run_by_name()
     local full_spec_name = utils.full_spec_name(args.tree)
     local full_test_name = utils.escaped_full_test_name(args.tree)
-    local full_shoulda_test_name = utils.full_shoulda_test_name(args.tree):gsub("([?])", "\\%1")
+    local full_shoulda_test_name = utils.escaped_full_shoulda_test_name(args.tree)
     table.insert(script_args, spec_path)
     table.insert(script_args, "--name")
     -- https://chriskottom.com/articles/command-line-flags-for-minitest-in-the-raw/
