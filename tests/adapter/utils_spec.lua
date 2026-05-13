@@ -241,6 +241,19 @@ describe("get_mappings", function()
 
     assert.equals("test_id", mappings["test"])
   end)
+
+  it("registers a shoulda-format key for each test", function()
+    local tree = Tree.from_list({
+      { id = "ShouldaTest", name = "ShouldaTest", type = "namespace" },
+      { id = "ShouldaTest_do_a_thing", name = "do a thing", type = "test" },
+    }, function(pos)
+      return pos.id
+    end)
+
+    local mappings = utils.get_mappings(tree)
+
+    assert.equals("ShouldaTest_do_a_thing", mappings["ShouldaTest#test_: Shoulda should do a thing."])
+  end)
 end)
 
 describe("strip_ansi", function()

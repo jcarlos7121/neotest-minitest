@@ -60,8 +60,8 @@ describe("Shoulda Test", function()
   describe("_parse_test_output", function()
     it("maps shoulda-format output lines to position ids", function()
       local output = [[
-ShouldaTest#test_: Shoulda should do a thing. = 0.00 s = .
-ShouldaTest#test_: addition should add two numbers. = 0.00 s = .
+ShouldaTest#test_: Shoulda should do a thing.  = 0.00 s = .
+ShouldaTest#test_: addition should add two numbers.  = 0.00 s = .
       ]]
 
       local results = plugin._parse_test_output(output, {
