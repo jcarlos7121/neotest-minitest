@@ -143,36 +143,40 @@ function NeotestAdapter.build_spec(args)
   end
 
   local function run_by_name()
-    local full_spec_name = utils.full_spec_name(args.tree)
-    local full_test_name = utils.escaped_full_test_name(args.tree)
-    local full_shoulda_test_name = utils.escaped_full_shoulda_test_name(args.tree)
     local run_patterns = utils.full_shoulda_run_patterns(args.tree)
     table.insert(script_args, spec_path)
     table.insert(script_args, "--name")
-    -- https://chriskottom.com/articles/command-line-flags-for-minitest-in-the-raw/
-    -- Shoulda-context method symbols end with a literal space (e.g. :"test_: X should Y. ").
-    -- Minitest compares the filter regex against "#{klass}##{method}", so the suffix
-    -- alternative must end with that trailing space.
-    local pattern = "/^"
-      .. full_spec_name
-      .. "|"
-      .. full_test_name
-      .. "|"
-      .. full_shoulda_test_name
-      .. " $"
-    -- For shoulda-matchers (`should belong_to(:cycle)`) and `it_requires_*` helpers,
-    -- the runtime test name carries a suffix we can't predict from source (matcher
-    -- options or random hex). Append each derived run pattern (`<Class>.*should <desc>`)
-    -- as an additional regex alternative. The `.*` tolerates module-prefixed class names
-    -- in the description that shoulda-context emits for module-scoped classes. Composite
-    -- helpers like `it_requires_all_auth` yield multiple patterns so running the
-    -- position runs all of its sub-tests.
+
+    local pattern
     if run_patterns then
+      -- shoulda-matcher / it_requires_* form: the position name is the matcher source
+      -- expression, which can span multiple lines and contain unbalanced parens, colons,
+      -- quotes, etc. Piping that through full_spec_name / full_test_name /
+      -- full_shoulda_test_name produces malformed regex alternatives that minitest can't
+      -- match against anything (or worse, fails to parse). The runtime test method name
+      -- has no relationship to the source expression for these forms anyway — only the
+      -- description-derived prefix patterns do. Use those alone.
+      local alts = {}
       for _, run_pattern in ipairs(run_patterns) do
-        pattern = pattern .. "|" .. run_pattern:gsub("([?])", "\\%1")
+        table.insert(alts, run_pattern:gsub("([?])", "\\%1"))
       end
+      pattern = "/" .. table.concat(alts, "|") .. "/"
+    else
+      local full_spec_name = utils.full_spec_name(args.tree)
+      local full_test_name = utils.escaped_full_test_name(args.tree)
+      local full_shoulda_test_name = utils.escaped_full_shoulda_test_name(args.tree)
+      -- https://chriskottom.com/articles/command-line-flags-for-minitest-in-the-raw/
+      -- Shoulda-context method symbols end with a literal space (e.g. :"test_: X should
+      -- Y. "). Minitest compares the filter regex against "#{klass}##{method}", so the
+      -- suffix alternative must end with that trailing space.
+      pattern = "/^"
+        .. full_spec_name
+        .. "|"
+        .. full_test_name
+        .. "|"
+        .. full_shoulda_test_name
+        .. " $/"
     end
-    pattern = pattern .. "/"
     table.insert(script_args, pattern)
   end
 
