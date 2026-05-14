@@ -102,5 +102,28 @@ ShouldaTest#test_: addition should add two numbers.  = 0.00 s = .
       assert.equal("failed", results["pos_authn"].status)
       assert.equal("passed", results["pos_authz"].status)
     end)
+
+    it("marks a single it_requires_all_auth position based on any of its three sub-tests", function()
+      -- All three sub-helpers map to the same pos id; if any fails, the line stays failed.
+      local prefixes = {
+        ["ControllerTest#test_: update should require authentication"] = "pos_all",
+        ["ControllerTest#test_: update should require authorization"] = "pos_all",
+        ["ControllerTest#test_: update should require permission"] = "pos_all",
+      }
+
+      local passing_output =
+        "ControllerTest#test_: update should require authentication - aaa111.  = 0.05 s = .\n"
+        .. "ControllerTest#test_: update should require authorization - bbb222.  = 0.05 s = .\n"
+        .. "ControllerTest#test_: update should require permission - ccc333.  = 0.05 s = .\n"
+      assert.equal("passed", plugin._parse_test_output(passing_output, {}, prefixes)["pos_all"].status)
+
+      -- Mixed: one sub-test fails. The parser must report failed regardless of which
+      -- sub-test fails and where it appears in the output.
+      local mixed_output =
+        "ControllerTest#test_: update should require authentication - aaa111.  = 0.05 s = .\n"
+        .. "ControllerTest#test_: update should require authorization - bbb222.  = 0.05 s = F\n"
+        .. "ControllerTest#test_: update should require permission - ccc333.  = 0.05 s = .\n"
+      assert.equal("failed", plugin._parse_test_output(mixed_output, {}, prefixes)["pos_all"].status)
+    end)
   end)
 end)

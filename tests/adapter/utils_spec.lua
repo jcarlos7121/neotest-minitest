@@ -289,6 +289,24 @@ describe("get_mappings", function()
       prefixes["ControllerTest#test_: update should require authentication"]
     )
   end)
+
+  it("registers three prefix mappings for it_requires_all_auth, all pointing at the same position", function()
+    local tree = Tree.from_list({
+      { id = "ControllerTest", name = "ControllerTest", type = "namespace" },
+      {
+        { id = "ControllerTest_update", name = "update", type = "namespace" },
+        { id = "ControllerTest_all_auth", name = "it_requires_all_auth", type = "test" },
+      },
+    }, function(pos)
+      return pos.id
+    end)
+
+    local _, prefixes = utils.get_mappings(tree)
+
+    assert.equals("ControllerTest_all_auth", prefixes["ControllerTest#test_: update should require authentication"])
+    assert.equals("ControllerTest_all_auth", prefixes["ControllerTest#test_: update should require authorization"])
+    assert.equals("ControllerTest_all_auth", prefixes["ControllerTest#test_: update should require permission"])
+  end)
 end)
 
 describe("shoulda_matcher_prefix", function()
@@ -316,16 +334,27 @@ describe("shoulda_matcher_prefix", function()
   end)
 end)
 
-describe("it_requires_helper_prefix", function()
-  it("derives description from identifier suffix", function()
-    assert.equals("require authentication", utils.it_requires_helper_prefix("it_requires_authentication"))
-    assert.equals("require authorization", utils.it_requires_helper_prefix("it_requires_authorization"))
-    assert.equals("require admin permission", utils.it_requires_helper_prefix("it_requires_admin_permission"))
+describe("it_requires_helper_prefixes", function()
+  it("derives a single description from a simple helper identifier", function()
+    assert.are.same({ "require authentication" }, utils.it_requires_helper_prefixes("it_requires_authentication"))
+    assert.are.same({ "require authorization" }, utils.it_requires_helper_prefixes("it_requires_authorization"))
+    assert.are.same(
+      { "require admin permission" },
+      utils.it_requires_helper_prefixes("it_requires_admin_permission")
+    )
+  end)
+
+  it("expands it_requires_all_auth into its three constituent sub-helpers", function()
+    assert.are.same({
+      "require authentication",
+      "require authorization",
+      "require permission",
+    }, utils.it_requires_helper_prefixes("it_requires_all_auth"))
   end)
 
   it("returns nil for non-helper names", function()
-    assert.is_nil(utils.it_requires_helper_prefix("do a thing"))
-    assert.is_nil(utils.it_requires_helper_prefix("belong_to(:cycle)"))
+    assert.is_nil(utils.it_requires_helper_prefixes("do a thing"))
+    assert.is_nil(utils.it_requires_helper_prefixes("belong_to(:cycle)"))
   end)
 end)
 

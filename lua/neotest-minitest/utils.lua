@@ -186,27 +186,43 @@ M.shoulda_matcher_prefix = function(name)
   return nil
 end
 
--- `it_requires_authentication` → "require authentication", and similar.
-M.it_requires_helper_prefix = function(name)
+-- Returns a list of description prefixes for an `it_requires_*` identifier.
+-- Most helpers map to a single prefix (e.g. `it_requires_authentication` → `require
+-- authentication`). Composites like `it_requires_all_auth` are project conventions that
+-- internally call several sub-helpers — one source line produces multiple runtime tests
+-- — so we register a prefix per sub-helper, all pointing at the same position id. A run
+-- of the line passes only when all sub-tests pass; failing any one marks the line failed.
+M.it_requires_helper_prefixes = function(name)
   local suffix = name:match("^it_requires_(.+)$")
   if not suffix then return nil end
-  return "require " .. suffix:gsub("_", " ")
+
+  if suffix == "all_auth" then
+    return {
+      "require authentication",
+      "require authorization",
+      "require permission",
+    }
+  end
+
+  return { "require " .. suffix:gsub("_", " ") }
 end
 
--- Returns the expected runtime-method prefix for a tree position whose `name` is either
--- a shoulda-matchers expression or an `it_requires_*` identifier. The prefix is the full
--- `<Class>#test_: <chain> should <description>` head; callers do `string.sub`-style prefix
--- matching against minitest verbose output to identify the runtime test, ignoring any
--- per-call suffix (matcher options or random hex).
-M.full_shoulda_prefix = function(tree)
+-- Returns the list of expected runtime-method prefixes for a tree position whose `name`
+-- is either a shoulda-matchers expression or an `it_requires_*` identifier. Most positions
+-- produce one prefix; composite helpers produce several. Each prefix is the full
+-- `<Class>#test_: <chain> should <description>` head; callers do prefix matching against
+-- minitest verbose output to identify the runtime test, ignoring any per-call suffix
+-- (matcher options or random hex).
+M.full_shoulda_prefixes = function(tree)
   local data = tree:data()
-  local description
+  local descriptions
   if data.name:match("^it_requires_") then
-    description = M.it_requires_helper_prefix(data.name)
+    descriptions = M.it_requires_helper_prefixes(data.name)
   else
-    description = M.shoulda_matcher_prefix(data.name)
+    local single = M.shoulda_matcher_prefix(data.name)
+    descriptions = single and { single } or nil
   end
-  if not description then return nil end
+  if not descriptions then return nil end
 
   local namespaces = {}
   for parent_node in tree:iter_parents() do
@@ -226,7 +242,20 @@ M.full_shoulda_prefix = function(tree)
     chain = table.concat(namespaces, " ")
   end
 
-  return class_name .. "#test_: " .. chain .. " should " .. description
+  local head = class_name .. "#test_: " .. chain .. " should "
+  local out = {}
+  for _, description in ipairs(descriptions) do
+    table.insert(out, head .. description)
+  end
+  return out
+end
+
+-- Backward-compatible singular form: returns the first prefix or nil. Kept for callers
+-- that build a single regex alternative (e.g. run_by_name); when a position has multiple
+-- prefixes, callers that need them all should switch to full_shoulda_prefixes.
+M.full_shoulda_prefix = function(tree)
+  local prefixes = M.full_shoulda_prefixes(tree)
+  return prefixes and prefixes[1] or nil
 end
 
 M.get_mappings = function(tree)
@@ -248,8 +277,12 @@ M.get_mappings = function(tree)
       local full_shoulda_test_name = M.full_shoulda_test_name(tree)
       mappings[full_shoulda_test_name] = data.id
 
-      local prefix = M.full_shoulda_prefix(tree)
-      if prefix then prefixes[prefix] = data.id end
+      local position_prefixes = M.full_shoulda_prefixes(tree)
+      if position_prefixes then
+        for _, prefix in ipairs(position_prefixes) do
+          prefixes[prefix] = data.id
+        end
+      end
     end
 
     for _, child in ipairs(tree:children()) do

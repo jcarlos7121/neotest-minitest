@@ -146,7 +146,7 @@ function NeotestAdapter.build_spec(args)
     local full_spec_name = utils.full_spec_name(args.tree)
     local full_test_name = utils.escaped_full_test_name(args.tree)
     local full_shoulda_test_name = utils.escaped_full_shoulda_test_name(args.tree)
-    local prefix = utils.full_shoulda_prefix(args.tree)
+    local prefixes = utils.full_shoulda_prefixes(args.tree)
     table.insert(script_args, spec_path)
     table.insert(script_args, "--name")
     -- https://chriskottom.com/articles/command-line-flags-for-minitest-in-the-raw/
@@ -162,10 +162,15 @@ function NeotestAdapter.build_spec(args)
       .. " $"
     -- For shoulda-matchers (`should belong_to(:cycle)`) and `it_requires_*` helpers,
     -- the runtime test name carries a suffix we can't predict from source (matcher
-    -- options or random hex). Append the prefix as an additional alternative — minitest
-    -- uses regex matching for --name, so the prefix matches any test whose name starts
-    -- with it. Over-matches sibling matchers in the same context, which is acceptable.
-    if prefix then pattern = pattern .. "|" .. prefix:gsub("([?])", "\\%1") end
+    -- options or random hex). Append each derived prefix as an additional alternative —
+    -- minitest's --name accepts regex, so the prefix matches any test whose name starts
+    -- with it. Composite helpers like `it_requires_all_auth` yield multiple prefixes so
+    -- running the position runs all of its sub-tests.
+    if prefixes then
+      for _, prefix in ipairs(prefixes) do
+        pattern = pattern .. "|" .. prefix:gsub("([?])", "\\%1")
+      end
+    end
     pattern = pattern .. "/"
     table.insert(script_args, pattern)
   end
@@ -408,9 +413,15 @@ function NeotestAdapter._parse_test_output(output, name_mappings, prefix_mapping
   for test_name, status in iter_test_output_status(output) do
     local pos_id = lookup_pos_id(test_name, name_mappings, prefix_mappings)
 
-    if pos_id then results[pos_id] = {
-      status = status == "." and "passed" or "failed",
-    } end
+    if pos_id then
+      local new_status = status == "." and "passed" or "failed"
+      -- Composite helpers like `it_requires_all_auth` map several runtime tests to a
+      -- single pos_id. Preserve "failed" if it was already set so any sub-test failure
+      -- propagates to the line, rather than the last-processed sub-test winning.
+      if not results[pos_id] or results[pos_id].status ~= "failed" then
+        results[pos_id] = { status = new_status }
+      end
+    end
   end
 
   for test_name, filepath, expected, actual in iter_test_output_error(output) do
@@ -484,9 +495,13 @@ function NeotestAdapter._make_status_stream(name_mappings, prefix_mappings)
           local test_name = line:sub(1, r_start - 1)
           local pos_id = lookup_pos_id(test_name, name_mappings, prefix_mappings)
           if pos_id then
-            results[pos_id] = {
-              status = status == "." and "passed" or "failed",
-            }
+            local new_status = status == "." and "passed" or "failed"
+            -- Same "failed sticks" semantic as _parse_test_output; needed so a composite
+            -- helper position that's already failed mid-stream doesn't flip back to
+            -- passed when a later sub-test passes.
+            if not results[pos_id] or results[pos_id].status ~= "failed" then
+              results[pos_id] = { status = new_status }
+            end
           end
         end
       end
