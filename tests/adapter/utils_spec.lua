@@ -334,6 +334,54 @@ describe("shoulda_matcher_prefix", function()
   end)
 end)
 
+describe("full_shoulda_run_patterns", function()
+  it("returns permissive regex patterns that tolerate module prefixes for class-level shoulds", function()
+    local tree = Tree.from_list({
+      { id = "NoteTemplatesContentControllerTest", name = "NoteTemplatesContentControllerTest", type = "namespace" },
+      { id = "NoteTemplatesContentControllerTest_all_auth", name = "it_requires_all_auth", type = "test" },
+    }, function(pos)
+      return pos.id
+    end)
+
+    local patterns = utils.full_shoulda_run_patterns(tree:children()[1])
+
+    assert.are.same({
+      "NoteTemplatesContentControllerTest.*should require authentication",
+      "NoteTemplatesContentControllerTest.*should require authorization",
+      "NoteTemplatesContentControllerTest.*should require permission",
+    }, patterns)
+  end)
+
+  it("returns a single pattern for a regular matcher", function()
+    local tree = Tree.from_list({
+      { id = "TissueTest", name = "TissueTest", type = "namespace" },
+      {
+        { id = "TissueTest_assoc", name = "associations", type = "namespace" },
+        { id = "TissueTest_belong", name = "belong_to(:cycle)", type = "test" },
+      },
+    }, function(pos)
+      return pos.id
+    end)
+
+    -- Reach the test node: children()[1] is `associations`, then children()[1] of that is `belong_to`.
+    local test_node = tree:children()[1]:children()[1]
+    local patterns = utils.full_shoulda_run_patterns(test_node)
+
+    assert.are.same({ "TissueTest.*should belong to cycle" }, patterns)
+  end)
+
+  it("returns nil for non-matcher non-helper names", function()
+    local tree = Tree.from_list({
+      { id = "Test", name = "Test", type = "namespace" },
+      { id = "test", name = "ordinary string description", type = "test" },
+    }, function(pos)
+      return pos.id
+    end)
+
+    assert.is_nil(utils.full_shoulda_run_patterns(tree:children()[1]))
+  end)
+end)
+
 describe("it_requires_helper_prefixes", function()
   it("derives a single description from a simple helper identifier", function()
     assert.are.same({ "require authentication" }, utils.it_requires_helper_prefixes("it_requires_authentication"))

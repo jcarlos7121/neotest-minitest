@@ -258,6 +258,40 @@ M.full_shoulda_prefix = function(tree)
   return prefixes and prefixes[1] or nil
 end
 
+-- Returns regex patterns suitable for minitest's `--name <regex>` filter for the same
+-- positions full_shoulda_prefixes covers. Differs in two ways: it uses `.*` between the
+-- short class name and the description to tolerate module prefixes that shoulda-context
+-- injects when the test class is module-scoped (e.g. shoulda emits
+-- `MyProfile::Foo should bar` for a class-level should inside `module MyProfile`), and
+-- it omits the structural `#test_:` separator since the `.*` swallows it.
+M.full_shoulda_run_patterns = function(tree)
+  local data = tree:data()
+  local descriptions
+  if data.name:match("^it_requires_") then
+    descriptions = M.it_requires_helper_prefixes(data.name)
+  else
+    local single = M.shoulda_matcher_prefix(data.name)
+    descriptions = single and { single } or nil
+  end
+  if not descriptions then return nil end
+
+  local class_name
+  for parent_node in tree:iter_parents() do
+    if parent_node:data().type == "namespace" then
+      class_name = parent_node:data().name
+    else
+      break
+    end
+  end
+  if not class_name then return nil end
+
+  local out = {}
+  for _, description in ipairs(descriptions) do
+    table.insert(out, class_name .. ".*should " .. description)
+  end
+  return out
+end
+
 M.get_mappings = function(tree)
   -- Returns two tables. `mappings` is exact-match `runtime_name -> pos_id`. `prefixes`
   -- maps a prefix string to a pos_id and is consulted only after exact lookup fails —

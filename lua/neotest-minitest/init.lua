@@ -146,7 +146,7 @@ function NeotestAdapter.build_spec(args)
     local full_spec_name = utils.full_spec_name(args.tree)
     local full_test_name = utils.escaped_full_test_name(args.tree)
     local full_shoulda_test_name = utils.escaped_full_shoulda_test_name(args.tree)
-    local prefixes = utils.full_shoulda_prefixes(args.tree)
+    local run_patterns = utils.full_shoulda_run_patterns(args.tree)
     table.insert(script_args, spec_path)
     table.insert(script_args, "--name")
     -- https://chriskottom.com/articles/command-line-flags-for-minitest-in-the-raw/
@@ -162,13 +162,14 @@ function NeotestAdapter.build_spec(args)
       .. " $"
     -- For shoulda-matchers (`should belong_to(:cycle)`) and `it_requires_*` helpers,
     -- the runtime test name carries a suffix we can't predict from source (matcher
-    -- options or random hex). Append each derived prefix as an additional alternative —
-    -- minitest's --name accepts regex, so the prefix matches any test whose name starts
-    -- with it. Composite helpers like `it_requires_all_auth` yield multiple prefixes so
-    -- running the position runs all of its sub-tests.
-    if prefixes then
-      for _, prefix in ipairs(prefixes) do
-        pattern = pattern .. "|" .. prefix:gsub("([?])", "\\%1")
+    -- options or random hex). Append each derived run pattern (`<Class>.*should <desc>`)
+    -- as an additional regex alternative. The `.*` tolerates module-prefixed class names
+    -- in the description that shoulda-context emits for module-scoped classes. Composite
+    -- helpers like `it_requires_all_auth` yield multiple patterns so running the
+    -- position runs all of its sub-tests.
+    if run_patterns then
+      for _, run_pattern in ipairs(run_patterns) do
+        pattern = pattern .. "|" .. run_pattern:gsub("([?])", "\\%1")
       end
     end
     pattern = pattern .. "/"
