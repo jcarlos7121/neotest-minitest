@@ -74,5 +74,33 @@ ShouldaTest#test_: addition should add two numbers.  = 0.00 s = .
         ["pos_nested"] = { status = "passed" },
       }, results)
     end)
+
+    it("falls back to prefix matching for shoulda-matchers", function()
+      local output =
+        "Patients::Cycles::TissueTest#test_: associations should belong to cycle optional: true.  = 0.04 s = .\n"
+        .. "Patients::Cycles::TissueTest#test_: enums should define :current_disposition as an enum backed by an enum.  = 0.04 s = F\n"
+
+      local results = plugin._parse_test_output(output, {}, {
+        ["TissueTest#test_: associations should belong to cycle"] = "pos_belong",
+        ["TissueTest#test_: enums should define :current_disposition"] = "pos_enum",
+      })
+
+      assert.equal("passed", results["pos_belong"].status)
+      assert.equal("failed", results["pos_enum"].status)
+    end)
+
+    it("falls back to prefix matching for it_requires_* helpers (with random hex suffix)", function()
+      local output =
+        "TissueObservationsControllerTest#test_: update should require authentication - bd6bdc1bd62ef5d7c386a77f.  = 0.05 s = F\n"
+        .. "TissueObservationsControllerTest#test_: update should require authorization - d0544478e23d1b87104cee3e.  = 0.08 s = .\n"
+
+      local results = plugin._parse_test_output(output, {}, {
+        ["TissueObservationsControllerTest#test_: update should require authentication"] = "pos_authn",
+        ["TissueObservationsControllerTest#test_: update should require authorization"] = "pos_authz",
+      })
+
+      assert.equal("failed", results["pos_authn"].status)
+      assert.equal("passed", results["pos_authz"].status)
+    end)
   end)
 end)

@@ -254,6 +254,79 @@ describe("get_mappings", function()
 
     assert.equals("ShouldaTest_do_a_thing", mappings["ShouldaTest#test_: Shoulda should do a thing."])
   end)
+
+  it("registers a prefix mapping for shoulda-matchers positions", function()
+    local tree = Tree.from_list({
+      { id = "TissueTest", name = "TissueTest", type = "namespace" },
+      {
+        { id = "TissueTest_associations", name = "associations", type = "namespace" },
+        { id = "TissueTest_belong_to_cycle", name = "belong_to(:cycle).optional(true)", type = "test" },
+      },
+    }, function(pos)
+      return pos.id
+    end)
+
+    local _, prefixes = utils.get_mappings(tree)
+
+    assert.equals("TissueTest_belong_to_cycle", prefixes["TissueTest#test_: associations should belong to cycle"])
+  end)
+
+  it("registers a prefix mapping for it_requires_* helpers", function()
+    local tree = Tree.from_list({
+      { id = "ControllerTest", name = "ControllerTest", type = "namespace" },
+      {
+        { id = "ControllerTest_update", name = "update", type = "namespace" },
+        { id = "ControllerTest_it_requires_authentication", name = "it_requires_authentication", type = "test" },
+      },
+    }, function(pos)
+      return pos.id
+    end)
+
+    local _, prefixes = utils.get_mappings(tree)
+
+    assert.equals(
+      "ControllerTest_it_requires_authentication",
+      prefixes["ControllerTest#test_: update should require authentication"]
+    )
+  end)
+end)
+
+describe("shoulda_matcher_prefix", function()
+  it("maps belong_to", function()
+    assert.equals("belong to cycle", utils.shoulda_matcher_prefix("belong_to(:cycle)"))
+    assert.equals("belong to cycle", utils.shoulda_matcher_prefix("belong_to(:cycle).optional(true)"))
+  end)
+
+  it("maps have_many", function()
+    assert.equals(
+      "have many observations",
+      utils.shoulda_matcher_prefix("have_many(:observations).class_name(\"Foo\").dependent(:destroy)")
+    )
+  end)
+
+  it("maps define_enum_for using the colon-prefixed attribute", function()
+    assert.equals(
+      "define :current_disposition",
+      utils.shoulda_matcher_prefix("define_enum_for(:current_disposition).with_values(...)")
+    )
+  end)
+
+  it("returns nil for unknown matchers", function()
+    assert.is_nil(utils.shoulda_matcher_prefix("some_random_matcher(:foo)"))
+  end)
+end)
+
+describe("it_requires_helper_prefix", function()
+  it("derives description from identifier suffix", function()
+    assert.equals("require authentication", utils.it_requires_helper_prefix("it_requires_authentication"))
+    assert.equals("require authorization", utils.it_requires_helper_prefix("it_requires_authorization"))
+    assert.equals("require admin permission", utils.it_requires_helper_prefix("it_requires_admin_permission"))
+  end)
+
+  it("returns nil for non-helper names", function()
+    assert.is_nil(utils.it_requires_helper_prefix("do a thing"))
+    assert.is_nil(utils.it_requires_helper_prefix("belong_to(:cycle)"))
+  end)
 end)
 
 describe("strip_ansi", function()

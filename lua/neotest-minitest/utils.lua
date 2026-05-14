@@ -141,9 +141,101 @@ M.escaped_full_shoulda_test_name = function(tree)
   return M.full_shoulda_test_name(tree):gsub("([?])", "\\%1")
 end
 
+-- shoulda-matchers description prefixes for matchers commonly used in Rails apps.
+-- The returned string is the head of `matcher.description` — the runtime test method
+-- name appends suffix text per matcher option (e.g. `optional: true`,
+-- `class_name => Foo`), so we match by prefix rather than exact name.
+local SHOULDA_MATCHERS = {
+  belong_to = function(arg) return "belong to " .. arg end,
+  have_many = function(arg) return "have many " .. arg end,
+  have_one = function(arg) return "have one " .. arg end,
+  have_and_belong_to_many = function(arg) return "have and belong to many " .. arg end,
+  validate_presence_of = function(arg) return "validate that :" .. arg end,
+  validate_uniqueness_of = function(arg) return "validate that :" .. arg end,
+  validate_length_of = function(arg) return "validate that the length of :" .. arg end,
+  validate_inclusion_of = function(arg) return "validate that :" .. arg end,
+  validate_numericality_of = function(arg) return "validate that :" .. arg end,
+  validate_acceptance_of = function(arg) return "validate that :" .. arg end,
+  validate_absence_of = function(arg) return "validate that :" .. arg end,
+  validate_format_of = function(arg) return "validate that :" .. arg end,
+  define_enum_for = function(arg) return "define :" .. arg end,
+  delegate_method = function(arg) return "delegate method ##{" .. arg end,
+  have_db_column = function(arg) return "have db column named " .. arg end,
+  have_db_index = function(arg) return "have a db index on " .. arg end,
+  have_readonly_attribute = function(arg) return "have readonly attribute " .. arg end,
+  have_secure_password = function() return "have a secure password" end,
+  serialize = function(arg) return "serialize :" .. arg end,
+  accept_nested_attributes_for = function(arg) return "accept nested attributes for " .. arg end,
+}
+
+-- Given the source text of a `should <call>` argument like `belong_to(:cycle).optional(true)`,
+-- returns the description prefix that shoulda-matchers will use for the generated test
+-- method, or nil if the matcher isn't recognized. Only the head of the chain is consumed —
+-- chained options contribute additional suffix text that's allowed to vary at match time.
+M.shoulda_matcher_prefix = function(name)
+  local matcher, arg = name:match("^([%w_]+)%(:?([%w_]+)")
+  if matcher then
+    local builder = SHOULDA_MATCHERS[matcher]
+    if builder then return builder(arg) end
+  end
+
+  -- `have_secure_password` and other no-arg matchers
+  local no_arg = name:match("^([%w_]+)%(%)")
+  if no_arg and SHOULDA_MATCHERS[no_arg] then return SHOULDA_MATCHERS[no_arg]() end
+
+  return nil
+end
+
+-- `it_requires_authentication` → "require authentication", and similar.
+M.it_requires_helper_prefix = function(name)
+  local suffix = name:match("^it_requires_(.+)$")
+  if not suffix then return nil end
+  return "require " .. suffix:gsub("_", " ")
+end
+
+-- Returns the expected runtime-method prefix for a tree position whose `name` is either
+-- a shoulda-matchers expression or an `it_requires_*` identifier. The prefix is the full
+-- `<Class>#test_: <chain> should <description>` head; callers do `string.sub`-style prefix
+-- matching against minitest verbose output to identify the runtime test, ignoring any
+-- per-call suffix (matcher options or random hex).
+M.full_shoulda_prefix = function(tree)
+  local data = tree:data()
+  local description
+  if data.name:match("^it_requires_") then
+    description = M.it_requires_helper_prefix(data.name)
+  else
+    description = M.shoulda_matcher_prefix(data.name)
+  end
+  if not description then return nil end
+
+  local namespaces = {}
+  for parent_node in tree:iter_parents() do
+    if parent_node:data().type == "namespace" then
+      table.insert(namespaces, 1, parent_node:data().name)
+    else
+      break
+    end
+  end
+  if #namespaces == 0 then return nil end
+
+  local class_name = table.remove(namespaces, 1)
+  local chain
+  if #namespaces == 0 then
+    chain = class_name:gsub("Test$", "")
+  else
+    chain = table.concat(namespaces, " ")
+  end
+
+  return class_name .. "#test_: " .. chain .. " should " .. description
+end
+
 M.get_mappings = function(tree)
-  -- get the mappings for the current node and its children
+  -- Returns two tables. `mappings` is exact-match `runtime_name -> pos_id`. `prefixes`
+  -- maps a prefix string to a pos_id and is consulted only after exact lookup fails —
+  -- used for shoulda-matchers and `it_requires_*` helpers whose runtime method names
+  -- carry a varying suffix (matcher options or random hex).
   local mappings = {}
+  local prefixes = {}
   local function name_map(tree)
     local data = tree:data()
     if data.type == "test" then
@@ -155,6 +247,9 @@ M.get_mappings = function(tree)
 
       local full_shoulda_test_name = M.full_shoulda_test_name(tree)
       mappings[full_shoulda_test_name] = data.id
+
+      local prefix = M.full_shoulda_prefix(tree)
+      if prefix then prefixes[prefix] = data.id end
     end
 
     for _, child in ipairs(tree:children()) do
@@ -163,7 +258,7 @@ M.get_mappings = function(tree)
   end
   name_map(tree)
 
-  return mappings
+  return mappings, prefixes
 end
 
 M.strip_ansi_escape_codes = function(str)

@@ -102,6 +102,23 @@ function NeotestAdapter.discover_positions(file_path)
       method: (identifier) @func_name (#match? @func_name "^(should)$")
       arguments: (argument_list (string (string_content) @test.name))
     )) @test.definition
+
+    ; shoulda-matchers form: `should belong_to(:cycle)`, `should have_many(...)`, etc.
+    ; Matched by accepting a method-call (or chained calls) instead of a string literal.
+    ((
+      call
+      method: (identifier) @func_name (#match? @func_name "^(should)$")
+      arguments: (argument_list (call) @test.name)
+    )) @test.definition
+
+    ; Project-specific class-method test helpers, e.g. `it_requires_authentication { ... }`.
+    ; The identifier itself is captured as the test name; downstream code derives the
+    ; runtime description (e.g. "require authentication") from the suffix.
+    ((
+      call
+      method: (identifier) @test.name (#match? @test.name "^it_requires_[a-z_]+$")
+      block: (_)
+    )) @test.definition
   ]]
 
   return lib.treesitter.parse_positions(file_path, query, {
@@ -119,7 +136,7 @@ function NeotestAdapter.build_spec(args)
   local results_path = config.results_path()
   local spec_path = config.transform_spec_path(position.path)
 
-  local name_mappings = utils.get_mappings(args.tree)
+  local name_mappings, prefix_mappings = utils.get_mappings(args.tree)
 
   local function run_by_filename()
     table.insert(script_args, spec_path)
@@ -129,16 +146,28 @@ function NeotestAdapter.build_spec(args)
     local full_spec_name = utils.full_spec_name(args.tree)
     local full_test_name = utils.escaped_full_test_name(args.tree)
     local full_shoulda_test_name = utils.escaped_full_shoulda_test_name(args.tree)
+    local prefix = utils.full_shoulda_prefix(args.tree)
     table.insert(script_args, spec_path)
     table.insert(script_args, "--name")
     -- https://chriskottom.com/articles/command-line-flags-for-minitest-in-the-raw/
     -- Shoulda-context method symbols end with a literal space (e.g. :"test_: X should Y. ").
     -- Minitest compares the filter regex against "#{klass}##{method}", so the suffix
     -- alternative must end with that trailing space.
-    table.insert(
-      script_args,
-      "/^" .. full_spec_name .. "|" .. full_test_name .. "|" .. full_shoulda_test_name .. " $/"
-    )
+    local pattern = "/^"
+      .. full_spec_name
+      .. "|"
+      .. full_test_name
+      .. "|"
+      .. full_shoulda_test_name
+      .. " $"
+    -- For shoulda-matchers (`should belong_to(:cycle)`) and `it_requires_*` helpers,
+    -- the runtime test name carries a suffix we can't predict from source (matcher
+    -- options or random hex). Append the prefix as an additional alternative — minitest
+    -- uses regex matching for --name, so the prefix matches any test whose name starts
+    -- with it. Over-matches sibling matchers in the same context, which is acceptable.
+    if prefix then pattern = pattern .. "|" .. prefix:gsub("([?])", "\\%1") end
+    pattern = pattern .. "/"
+    table.insert(script_args, pattern)
   end
 
   -- When true, replaces config.get_test_cmd() with `bundle exec bin/rails test` for
@@ -235,7 +264,7 @@ function NeotestAdapter.build_spec(args)
     "-v",
   }):flatten():totable()
 
-  local stream = NeotestAdapter._make_status_stream(name_mappings)
+  local stream = NeotestAdapter._make_status_stream(name_mappings, prefix_mappings)
 
   if args.strategy == "dap" then
     return {
@@ -244,6 +273,7 @@ function NeotestAdapter.build_spec(args)
         results_path = results_path,
         pos_id = position.id,
         name_mappings = name_mappings,
+        prefix_mappings = prefix_mappings,
       },
       strategy = dap_strategy(command),
       stream = stream,
@@ -256,6 +286,7 @@ function NeotestAdapter.build_spec(args)
         results_path = results_path,
         pos_id = position.id,
         name_mappings = name_mappings,
+        prefix_mappings = prefix_mappings,
       },
       stream = stream,
     }
@@ -333,7 +364,28 @@ local iter_test_output_status = function(output)
   end
 end
 
-function NeotestAdapter._parse_test_output(output, name_mappings)
+-- Tries an exact lookup in name_mappings first (after stripping module prefixes if
+-- needed). Falls back to scanning prefix_mappings for any prefix that is a literal
+-- prefix of the test_name. Returns the matching pos_id or nil.
+local function lookup_pos_id(test_name, name_mappings, prefix_mappings)
+  local pos_id = name_mappings[test_name]
+  if pos_id then return pos_id end
+
+  local stripped = utils.replace_module_namespace(test_name)
+  if name_mappings[stripped] then return name_mappings[stripped] end
+
+  if prefix_mappings then
+    for prefix, prefix_pos_id in pairs(prefix_mappings) do
+      if test_name:sub(1, #prefix) == prefix or stripped:sub(1, #prefix) == prefix then
+        return prefix_pos_id
+      end
+    end
+  end
+
+  return nil
+end
+
+function NeotestAdapter._parse_test_output(output, name_mappings, prefix_mappings)
   local results = {}
   local error_pattern = "Error:%s*([%w:#_]+):%s*(.-)\n[%w%W]-%.rb:(%d+):"
   local traceback_pattern = "(%d+:[^:]+:%d+:in `[^']+')%s+([^:]+):(%d+):(in `[^']+':[^\n]+)"
@@ -354,11 +406,7 @@ function NeotestAdapter._parse_test_output(output, name_mappings)
   end
 
   for test_name, status in iter_test_output_status(output) do
-    local pos_id = name_mappings[test_name]
-    if not pos_id then
-      test_name = utils.replace_module_namespace(test_name)
-      if name_mappings[test_name] then pos_id = name_mappings[test_name] end
-    end
+    local pos_id = lookup_pos_id(test_name, name_mappings, prefix_mappings)
 
     if pos_id then results[pos_id] = {
       status = status == "." and "passed" or "failed",
@@ -368,11 +416,7 @@ function NeotestAdapter._parse_test_output(output, name_mappings)
   for test_name, filepath, expected, actual in iter_test_output_error(output) do
     local message = string.format("Expected: %s\n  Actual: %s", expected, actual)
 
-    local pos_id = name_mappings[test_name]
-    if not pos_id then
-      test_name = utils.replace_module_namespace(test_name)
-      pos_id = name_mappings[test_name]
-    end
+    local pos_id = lookup_pos_id(test_name, name_mappings, prefix_mappings)
 
     local line = tonumber(string.match(filepath, ":(%d+)$"))
     if results[pos_id] then
@@ -387,10 +431,9 @@ function NeotestAdapter._parse_test_output(output, name_mappings)
   end
 
   for test_name, message, line_str in string.gmatch(output, error_pattern) do
-    test_name = utils.replace_module_namespace(test_name)
     local line = tonumber(line_str)
-    local pos_id = name_mappings[test_name]
-    if results[pos_id] then
+    local pos_id = lookup_pos_id(test_name, name_mappings, prefix_mappings)
+    if pos_id and results[pos_id] then
       results[pos_id].status = "failed"
       results[pos_id].errors = {
         {
@@ -412,7 +455,7 @@ end
 -- Per-test errors and tracebacks are intentionally not surfaced here — they're
 -- multi-line and require the full output to parse safely. NeotestAdapter.results
 -- runs on the captured output file at process exit and fills those in.
-function NeotestAdapter._make_status_stream(name_mappings)
+function NeotestAdapter._make_status_stream(name_mappings, prefix_mappings)
   return function(output_stream)
     local buffer = ""
 
@@ -439,11 +482,7 @@ function NeotestAdapter._make_status_stream(name_mappings)
         local r_start, _, status = line:find(status_line_pattern)
         if r_start and status then
           local test_name = line:sub(1, r_start - 1)
-          local pos_id = name_mappings[test_name]
-          if not pos_id then
-            test_name = utils.replace_module_namespace(test_name)
-            pos_id = name_mappings[test_name]
-          end
+          local pos_id = lookup_pos_id(test_name, name_mappings, prefix_mappings)
           if pos_id then
             results[pos_id] = {
               status = status == "." and "passed" or "failed",
@@ -470,7 +509,11 @@ function NeotestAdapter.results(spec, result, tree)
   end
 
   output = utils.strip_ansi_escape_codes(output)
-  local results = NeotestAdapter._parse_test_output(output, spec.context.name_mappings)
+  local results = NeotestAdapter._parse_test_output(
+    output,
+    spec.context.name_mappings,
+    spec.context.prefix_mappings
+  )
 
   return results
 end
