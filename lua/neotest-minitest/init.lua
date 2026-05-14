@@ -229,11 +229,11 @@ function NeotestAdapter.build_spec(args)
     cmd_prefix = config.get_test_cmd()
   end
 
-  local command = vim.tbl_flatten({
+  local command = vim.iter({
     cmd_prefix,
     script_args,
     "-v",
-  })
+  }):flatten():totable()
 
   local stream = NeotestAdapter._make_status_stream(name_mappings)
 
