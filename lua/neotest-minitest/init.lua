@@ -158,7 +158,11 @@ function NeotestAdapter.build_spec(args)
       -- description-derived prefix patterns do. Use those alone.
       local alts = {}
       for _, run_pattern in ipairs(run_patterns) do
-        table.insert(alts, run_pattern:gsub("([?])", "\\%1"))
+        -- gsub returns (str, count); wrap in parens so only the string is passed to
+        -- insert (otherwise Lua treats the count as the positional argument and errors
+        -- with "number expected, got string").
+        local escaped = (run_pattern:gsub("([?])", "\\%1"))
+        table.insert(alts, escaped)
       end
       pattern = "/" .. table.concat(alts, "|") .. "/"
     else
