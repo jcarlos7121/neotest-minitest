@@ -329,6 +329,17 @@ describe("shoulda_matcher_prefix", function()
     )
   end)
 
+  it("maps Active Storage attachment matchers", function()
+    assert.equals(
+      "have a has_many_attached called files",
+      utils.shoulda_matcher_prefix("have_many_attached(:files)")
+    )
+    assert.equals(
+      "have a has_one_attached called avatar",
+      utils.shoulda_matcher_prefix("have_one_attached(:avatar)")
+    )
+  end)
+
   it("returns nil for unknown matchers", function()
     assert.is_nil(utils.shoulda_matcher_prefix("some_random_matcher(:foo)"))
   end)

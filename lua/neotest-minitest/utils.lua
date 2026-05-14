@@ -166,6 +166,8 @@ local SHOULDA_MATCHERS = {
   have_secure_password = function() return "have a secure password" end,
   serialize = function(arg) return "serialize :" .. arg end,
   accept_nested_attributes_for = function(arg) return "accept nested attributes for " .. arg end,
+  have_many_attached = function(arg) return "have a has_many_attached called " .. arg end,
+  have_one_attached = function(arg) return "have a has_one_attached called " .. arg end,
 }
 
 -- Given the source text of a `should <call>` argument like `belong_to(:cycle).optional(true)`,
