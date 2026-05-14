@@ -165,7 +165,7 @@ local SHOULDA_MATCHERS = {
   have_readonly_attribute = function(arg) return "have readonly attribute " .. arg end,
   have_secure_password = function() return "have a secure password" end,
   serialize = function(arg) return "serialize :" .. arg end,
-  accept_nested_attributes_for = function(arg) return "accept nested attributes for " .. arg end,
+  accept_nested_attributes_for = function(arg) return "accepts_nested_attributes_for :" .. arg end,
   have_many_attached = function(arg) return "have a has_many_attached called " .. arg end,
   have_one_attached = function(arg) return "have a has_one_attached called " .. arg end,
 }

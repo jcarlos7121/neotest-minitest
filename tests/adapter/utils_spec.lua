@@ -329,6 +329,13 @@ describe("shoulda_matcher_prefix", function()
     )
   end)
 
+  it("maps accept_nested_attributes_for to its colon-prefixed form", function()
+    assert.equals(
+      "accepts_nested_attributes_for :service_lines",
+      utils.shoulda_matcher_prefix("accept_nested_attributes_for(:service_lines).allow_destroy(true)")
+    )
+  end)
+
   it("maps Active Storage attachment matchers", function()
     assert.equals(
       "have a has_many_attached called files",
