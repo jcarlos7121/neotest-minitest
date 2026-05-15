@@ -336,6 +336,37 @@ describe("shoulda_matcher_prefix", function()
     )
   end)
 
+  it("maps normalize with the attribute name (no colon prefix)", function()
+    assert.equals("normalize npi", utils.shoulda_matcher_prefix("normalize(:npi).from(\" \").to(nil)"))
+    assert.equals("normalize dea", utils.shoulda_matcher_prefix("normalize(:dea).from(\" \").to(nil)"))
+  end)
+
+  it("maps allow_value using the attribute from .for(...) and the literal value", function()
+    assert.equals(
+      "allow :npi to be \xE2\x80\xB9\"1234567890\"\xE2\x80\xBA",
+      utils.shoulda_matcher_prefix("allow_value(\"1234567890\").for(:npi)")
+    )
+    assert.equals(
+      "allow :npi to be \xE2\x80\xB9\"\"\xE2\x80\xBA",
+      utils.shoulda_matcher_prefix("allow_value(\"\").for(:npi)")
+    )
+    assert.equals(
+      "allow :npi to be \xE2\x80\xB9nil\xE2\x80\xBA",
+      utils.shoulda_matcher_prefix("allow_value(nil).for(:npi)")
+    )
+  end)
+
+  it("prepends `not ` to the description when the source name has the should_not marker", function()
+    assert.equals(
+      "not allow :npi to be \xE2\x80\xB9\"123456789\"\xE2\x80\xBA",
+      utils.shoulda_matcher_prefix("not allow_value(\"123456789\").for(:npi)")
+    )
+    assert.equals(
+      "not belong to cycle",
+      utils.shoulda_matcher_prefix("not belong_to(:cycle).optional(true)")
+    )
+  end)
+
   it("maps Active Storage attachment matchers", function()
     assert.equals(
       "have a has_many_attached called files",

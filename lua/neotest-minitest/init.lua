@@ -104,10 +104,11 @@ function NeotestAdapter.discover_positions(file_path)
     )) @test.definition
 
     ; shoulda-matchers form: `should belong_to(:cycle)`, `should have_many(...)`, etc.
-    ; Matched by accepting a method-call (or chained calls) instead of a string literal.
+    ; The matched method name (`should` vs `should_not`) is preserved as @func_name so
+    ; the custom build_position callback can mark negated forms with a `not ` prefix.
     ((
       call
-      method: (identifier) @func_name (#match? @func_name "^(should)$")
+      method: (identifier) @func_name (#match? @func_name "^(should|should_not)$")
       arguments: (argument_list (call) @test.name)
     )) @test.definition
 
@@ -125,6 +126,7 @@ function NeotestAdapter.discover_positions(file_path)
     nested_tests = true,
     require_namespaces = true,
     position_id = "require('neotest-minitest.utils').generate_treesitter_id",
+    build_position = "require('neotest-minitest.utils').build_position",
   })
 end
 

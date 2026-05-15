@@ -168,22 +168,55 @@ local SHOULDA_MATCHERS = {
   accept_nested_attributes_for = function(arg) return "accepts_nested_attributes_for :" .. arg end,
   have_many_attached = function(arg) return "have a has_many_attached called " .. arg end,
   have_one_attached = function(arg) return "have a has_one_attached called " .. arg end,
+  normalize = function(arg) return "normalize " .. arg end,
 }
 
--- Given the source text of a `should <call>` argument like `belong_to(:cycle).optional(true)`,
--- returns the description prefix that shoulda-matchers will use for the generated test
--- method, or nil if the matcher isn't recognized. Only the head of the chain is consumed —
--- chained options contribute additional suffix text that's allowed to vary at match time.
+-- shoulda-matchers' allow_value matcher takes the attribute in a separate `.for(:X)`
+-- chain rather than as the head argument, and the value being checked is a Ruby
+-- literal (string / nil / number) shoulda formats by wrapping in single guillemets.
+-- Source: `allow_value("foo").for(:bar)` → description: `allow :bar to be ‹"foo"›`.
+-- Returns nil if the source doesn't look like an allow_value chain.
+local function allow_value_prefix(name)
+  if not name:match("^allow_value%(") then return nil end
+  local literal = name:match("^allow_value%((.-)%)")
+  local attr = name:match("%.for%(:?([%w_]+)%)")
+  if not literal or not attr then return nil end
+  return "allow :" .. attr .. " to be \xE2\x80\xB9" .. literal .. "\xE2\x80\xBA"
+end
+
+-- Given the source text of a `should <call>` (or `should_not <call>`) argument like
+-- `belong_to(:cycle).optional(true)`, returns the description prefix that shoulda-matchers
+-- will use for the generated test method, or nil if the matcher isn't recognized.
+-- Only the head of the chain is consumed — chained options contribute additional suffix
+-- text that's allowed to vary at match time. A leading `not ` marker (added by
+-- M.build_position when the wrapping call is `should_not`) is stripped and re-applied
+-- after the matcher's description is built.
 M.shoulda_matcher_prefix = function(name)
+  local negated = false
+  if name:sub(1, 4) == "not " then
+    negated = true
+    name = name:sub(5)
+  end
+
+  local function negate(desc)
+    if not desc then return nil end
+    if negated then return "not " .. desc end
+    return desc
+  end
+
+  -- allow_value(<literal>).for(:attr) — attribute is in the chain, not the head call.
+  local allow = allow_value_prefix(name)
+  if allow then return negate(allow) end
+
   local matcher, arg = name:match("^([%w_]+)%(:?([%w_]+)")
   if matcher then
     local builder = SHOULDA_MATCHERS[matcher]
-    if builder then return builder(arg) end
+    if builder then return negate(builder(arg)) end
   end
 
   -- `have_secure_password` and other no-arg matchers
   local no_arg = name:match("^([%w_]+)%(%)")
-  if no_arg and SHOULDA_MATCHERS[no_arg] then return SHOULDA_MATCHERS[no_arg]() end
+  if no_arg and SHOULDA_MATCHERS[no_arg] then return negate(SHOULDA_MATCHERS[no_arg]()) end
 
   return nil
 end
@@ -328,6 +361,36 @@ M.get_mappings = function(tree)
   name_map(tree)
 
   return mappings, prefixes
+end
+
+-- Custom build_position that detects shoulda-context's `should_not <matcher>` form by
+-- inspecting the @func_name capture in the treesitter match. When found, the captured
+-- matcher source is prefixed with `not ` so the same prefix-derivation logic that handles
+-- positive shoulda-matchers can branch on the marker (see M.shoulda_matcher_prefix).
+-- Otherwise delegates to neotest's standard match-type detection.
+M.build_position = function(file_path, source, captured_nodes, _metadata)
+  local match_type
+  if captured_nodes["test.name"] then
+    match_type = "test"
+  elseif captured_nodes["namespace.name"] then
+    match_type = "namespace"
+  end
+  if not match_type then return end
+
+  local name = vim.treesitter.get_node_text(captured_nodes[match_type .. ".name"], source)
+  local definition = captured_nodes[match_type .. ".definition"]
+
+  if match_type == "test" and captured_nodes.func_name then
+    local func_text = vim.treesitter.get_node_text(captured_nodes.func_name, source)
+    if func_text == "should_not" then name = "not " .. name end
+  end
+
+  return {
+    type = match_type,
+    path = file_path,
+    name = name,
+    range = { definition:range() },
+  }
 end
 
 M.strip_ansi_escape_codes = function(str)
