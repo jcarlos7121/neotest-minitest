@@ -171,6 +171,7 @@ function NeotestAdapter.build_spec(args)
       local full_spec_name = utils.full_spec_name(args.tree)
       local full_test_name = utils.escaped_full_test_name(args.tree)
       local full_shoulda_test_name = utils.escaped_full_shoulda_test_name(args.tree)
+      local permissive = utils.permissive_should_pattern(args.tree)
       -- https://chriskottom.com/articles/command-line-flags-for-minitest-in-the-raw/
       -- Shoulda-context method symbols end with a literal space (e.g. :"test_: X should
       -- Y. "). Minitest compares the filter regex against "#{klass}##{method}", so the
@@ -181,7 +182,16 @@ function NeotestAdapter.build_spec(args)
         .. full_test_name
         .. "|"
         .. full_shoulda_test_name
-        .. " $/"
+        .. " $"
+      -- Permissive `<Class>.*should <name>` covers the class-level string-form case in
+      -- module-scoped classes (shoulda emits the module-prefixed class name in the
+      -- description, which the literal full_shoulda_test_name above can't tolerate).
+      -- Harmless for `test "X"`/`it "X"` positions — the runtime method name has no
+      -- `should` token so the regex doesn't match anything spurious.
+      if permissive then
+        pattern = pattern .. "|" .. (permissive:gsub("([?])", "\\%1"))
+      end
+      pattern = pattern .. "/"
     end
     table.insert(script_args, pattern)
   end

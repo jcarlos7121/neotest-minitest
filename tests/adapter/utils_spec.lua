@@ -383,6 +383,33 @@ describe("shoulda_matcher_prefix", function()
   end)
 end)
 
+describe("permissive_should_pattern", function()
+  it("returns class.*should name for a class-level string-form should position", function()
+    local tree = Tree.from_list({
+      { id = "ResolverTest", name = "ResolverTest", type = "namespace" },
+      { id = "ResolverTest_raise", name = "raise an error if format is not supported", type = "test" },
+    }, function(pos)
+      return pos.id
+    end)
+
+    assert.equals(
+      "ResolverTest.*should raise an error if format is not supported",
+      utils.permissive_should_pattern(tree:children()[1])
+    )
+  end)
+
+  it("returns nil for namespace positions", function()
+    local tree = Tree.from_list({
+      { id = "ResolverTest", name = "ResolverTest", type = "namespace" },
+      { id = "context", name = "addition", type = "namespace" },
+    }, function(pos)
+      return pos.id
+    end)
+
+    assert.is_nil(utils.permissive_should_pattern(tree))
+  end)
+end)
+
 describe("full_shoulda_run_patterns", function()
   it("returns permissive regex patterns that tolerate module prefixes for class-level shoulds", function()
     local tree = Tree.from_list({

@@ -293,6 +293,28 @@ M.full_shoulda_prefix = function(tree)
   return prefixes and prefixes[1] or nil
 end
 
+-- Returns a single permissive `<ShortClass>.*should <name>` regex pattern. Used as an
+-- additional alternative in run_by_name's --name filter to tolerate module prefixes that
+-- shoulda-context injects into the description of class-level string-form shoulds
+-- (e.g. for `module Foo; class BarTest`, shoulda emits `Foo::BarTest#test_: Foo::Bar
+-- should X` and our literal `BarTest#test_: Bar should X` doesn't match as a substring).
+M.permissive_should_pattern = function(tree)
+  local data = tree:data()
+  if data.type ~= "test" then return nil end
+
+  local class_name
+  for parent_node in tree:iter_parents() do
+    if parent_node:data().type == "namespace" then
+      class_name = parent_node:data().name
+    else
+      break
+    end
+  end
+  if not class_name then return nil end
+
+  return class_name .. ".*should " .. data.name
+end
+
 -- Returns regex patterns suitable for minitest's `--name <regex>` filter for the same
 -- positions full_shoulda_prefixes covers. Differs in two ways: it uses `.*` between the
 -- short class name and the description to tolerate module prefixes that shoulda-context
