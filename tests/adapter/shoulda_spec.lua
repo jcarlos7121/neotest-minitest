@@ -103,6 +103,24 @@ ShouldaTest#test_: addition should add two numbers.  = 0.00 s = .
       assert.equal("passed", results["pos_authz"].status)
     end)
 
+    it("maps iteration-generated runtime tests to a single source position via substring fallback", function()
+      -- All four runtime tests share the description "apply the additional attributes to
+      -- the container" but each has a different context-interpolated chain. The source
+      -- has ONE `should "apply..."` line inside a CardComponent::TYPE_OPTIONS.each loop;
+      -- the substring entry maps all four to it.
+      local output =
+        "CardContainerComponentTest#test_: given a(n) stacking card container with additional attributes should apply the additional attributes to the container.  = 0.01 s = .\n"
+        .. "CardContainerComponentTest#test_: given a(n) inline card container with additional attributes should apply the additional attributes to the container.  = 0.01 s = .\n"
+        .. "CardContainerComponentTest#test_: given a(n) inline_nowrap card container with additional attributes should apply the additional attributes to the container.  = 0.01 s = F\n"
+        .. "CardContainerComponentTest#test_: given a(n) single card container with additional attributes should apply the additional attributes to the container.  = 0.01 s = .\n"
+
+      local substrings = { [" should apply the additional attributes to the container."] = "pos_iter" }
+      local results = plugin._parse_test_output(output, {}, nil, substrings)
+
+      -- "failed sticks": one iteration failed → position is failed.
+      assert.equal("failed", results["pos_iter"].status)
+    end)
+
     it("marks a single it_requires_all_auth position based on any of its three sub-tests", function()
       -- All three sub-helpers map to the same pos id; if any fails, the line stays failed.
       local prefixes = {

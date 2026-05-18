@@ -350,12 +350,21 @@ M.full_shoulda_run_patterns = function(tree)
 end
 
 M.get_mappings = function(tree)
-  -- Returns two tables. `mappings` is exact-match `runtime_name -> pos_id`. `prefixes`
-  -- maps a prefix string to a pos_id and is consulted only after exact lookup fails —
-  -- used for shoulda-matchers and `it_requires_*` helpers whose runtime method names
-  -- carry a varying suffix (matcher options or random hex).
+  -- Returns three tables consulted by lookup_pos_id in order:
+  --   * `mappings`   — exact `runtime_name -> pos_id`.
+  --   * `prefixes`   — `runtime_prefix -> pos_id`; matched as a literal prefix of the
+  --                    runtime name. Used for shoulda-matchers / it_requires_* whose
+  --                    runtime names carry a varying suffix (matcher options, random hex).
+  --   * `substrings` — `" should <name>." -> pos_id`; matched as a substring anywhere in
+  --                    the runtime name. Used to map iteration-expanded should tests where
+  --                    the context name is interpolated (e.g. `OPTIONS.each do |type|;
+  --                    context "given a(n) #{type}..." do should "X" do end end end`) and
+  --                    several runtime methods share the same description but different
+  --                    context chains. All N iterations land on the same position; "failed
+  --                    sticks" aggregation gives the position the worst-case status.
   local mappings = {}
   local prefixes = {}
+  local substrings = {}
   local function name_map(tree)
     local data = tree:data()
     if data.type == "test" then
@@ -374,6 +383,15 @@ M.get_mappings = function(tree)
           prefixes[prefix] = data.id
         end
       end
+
+      -- Register a substring fallback only for plain string-form `should "X"` positions
+      -- (skip matcher/helper forms, which have their own prefix infrastructure).
+      if not data.name:match("^it_requires_")
+        and not data.name:match("^not it_requires_")
+        and not M.shoulda_matcher_prefix(data.name)
+      then
+        substrings[" should " .. data.name .. "."] = data.id
+      end
     end
 
     for _, child in ipairs(tree:children()) do
@@ -382,7 +400,7 @@ M.get_mappings = function(tree)
   end
   name_map(tree)
 
-  return mappings, prefixes
+  return mappings, prefixes, substrings
 end
 
 -- Custom build_position that detects shoulda-context's `should_not <matcher>` form by

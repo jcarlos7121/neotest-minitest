@@ -138,7 +138,7 @@ function NeotestAdapter.build_spec(args)
   local results_path = config.results_path()
   local spec_path = config.transform_spec_path(position.path)
 
-  local name_mappings, prefix_mappings = utils.get_mappings(args.tree)
+  local name_mappings, prefix_mappings, substring_mappings = utils.get_mappings(args.tree)
 
   local function run_by_filename()
     table.insert(script_args, spec_path)
@@ -290,7 +290,7 @@ function NeotestAdapter.build_spec(args)
     "-v",
   }):flatten():totable()
 
-  local stream = NeotestAdapter._make_status_stream(name_mappings, prefix_mappings)
+  local stream = NeotestAdapter._make_status_stream(name_mappings, prefix_mappings, substring_mappings)
 
   if args.strategy == "dap" then
     return {
@@ -300,6 +300,7 @@ function NeotestAdapter.build_spec(args)
         pos_id = position.id,
         name_mappings = name_mappings,
         prefix_mappings = prefix_mappings,
+        substring_mappings = substring_mappings,
       },
       strategy = dap_strategy(command),
       stream = stream,
@@ -313,6 +314,7 @@ function NeotestAdapter.build_spec(args)
         pos_id = position.id,
         name_mappings = name_mappings,
         prefix_mappings = prefix_mappings,
+        substring_mappings = substring_mappings,
       },
       stream = stream,
     }
@@ -392,8 +394,12 @@ end
 
 -- Tries an exact lookup in name_mappings first (after stripping module prefixes if
 -- needed). Falls back to scanning prefix_mappings for any prefix that is a literal
--- prefix of the test_name. Returns the matching pos_id or nil.
-local function lookup_pos_id(test_name, name_mappings, prefix_mappings)
+-- prefix of the test_name. Finally falls back to substring_mappings for any substring
+-- (` should <description>.`) that appears anywhere in the test_name — used so a
+-- single source `should "X"` inside an iteration loop maps the N runtime tests it
+-- generates (each with a different interpolated context) to the same position.
+-- Returns the matching pos_id or nil.
+local function lookup_pos_id(test_name, name_mappings, prefix_mappings, substring_mappings)
   local pos_id = name_mappings[test_name]
   if pos_id then return pos_id end
 
@@ -408,10 +414,18 @@ local function lookup_pos_id(test_name, name_mappings, prefix_mappings)
     end
   end
 
+  if substring_mappings then
+    for substring, sub_pos_id in pairs(substring_mappings) do
+      if test_name:find(substring, 1, true) or stripped:find(substring, 1, true) then
+        return sub_pos_id
+      end
+    end
+  end
+
   return nil
 end
 
-function NeotestAdapter._parse_test_output(output, name_mappings, prefix_mappings)
+function NeotestAdapter._parse_test_output(output, name_mappings, prefix_mappings, substring_mappings)
   local results = {}
   local error_pattern = "Error:%s*([%w:#_]+):%s*(.-)\n[%w%W]-%.rb:(%d+):"
   local traceback_pattern = "(%d+:[^:]+:%d+:in `[^']+')%s+([^:]+):(%d+):(in `[^']+':[^\n]+)"
@@ -432,7 +446,7 @@ function NeotestAdapter._parse_test_output(output, name_mappings, prefix_mapping
   end
 
   for test_name, status in iter_test_output_status(output) do
-    local pos_id = lookup_pos_id(test_name, name_mappings, prefix_mappings)
+    local pos_id = lookup_pos_id(test_name, name_mappings, prefix_mappings, substring_mappings)
 
     if pos_id then
       local new_status = status == "." and "passed" or "failed"
@@ -448,7 +462,7 @@ function NeotestAdapter._parse_test_output(output, name_mappings, prefix_mapping
   for test_name, filepath, expected, actual in iter_test_output_error(output) do
     local message = string.format("Expected: %s\n  Actual: %s", expected, actual)
 
-    local pos_id = lookup_pos_id(test_name, name_mappings, prefix_mappings)
+    local pos_id = lookup_pos_id(test_name, name_mappings, prefix_mappings, substring_mappings)
 
     local line = tonumber(string.match(filepath, ":(%d+)$"))
     if results[pos_id] then
@@ -464,7 +478,7 @@ function NeotestAdapter._parse_test_output(output, name_mappings, prefix_mapping
 
   for test_name, message, line_str in string.gmatch(output, error_pattern) do
     local line = tonumber(line_str)
-    local pos_id = lookup_pos_id(test_name, name_mappings, prefix_mappings)
+    local pos_id = lookup_pos_id(test_name, name_mappings, prefix_mappings, substring_mappings)
     if pos_id and results[pos_id] then
       results[pos_id].status = "failed"
       results[pos_id].errors = {
@@ -487,7 +501,7 @@ end
 -- Per-test errors and tracebacks are intentionally not surfaced here — they're
 -- multi-line and require the full output to parse safely. NeotestAdapter.results
 -- runs on the captured output file at process exit and fills those in.
-function NeotestAdapter._make_status_stream(name_mappings, prefix_mappings)
+function NeotestAdapter._make_status_stream(name_mappings, prefix_mappings, substring_mappings)
   return function(output_stream)
     local buffer = ""
 
@@ -514,7 +528,7 @@ function NeotestAdapter._make_status_stream(name_mappings, prefix_mappings)
         local r_start, _, status = line:find(status_line_pattern)
         if r_start and status then
           local test_name = line:sub(1, r_start - 1)
-          local pos_id = lookup_pos_id(test_name, name_mappings, prefix_mappings)
+          local pos_id = lookup_pos_id(test_name, name_mappings, prefix_mappings, substring_mappings)
           if pos_id then
             local new_status = status == "." and "passed" or "failed"
             -- Same "failed sticks" semantic as _parse_test_output; needed so a composite
@@ -548,7 +562,8 @@ function NeotestAdapter.results(spec, result, tree)
   local results = NeotestAdapter._parse_test_output(
     output,
     spec.context.name_mappings,
-    spec.context.prefix_mappings
+    spec.context.prefix_mappings,
+    spec.context.substring_mappings
   )
 
   return results
