@@ -111,15 +111,6 @@ function NeotestAdapter.discover_positions(file_path)
       method: (identifier) @func_name (#match? @func_name "^(should|should_not)$")
       arguments: (argument_list (call) @test.name)
     )) @test.definition
-
-    ; Project-specific class-method test helpers, e.g. `it_requires_authentication { ... }`.
-    ; The identifier itself is captured as the test name; downstream code derives the
-    ; runtime description (e.g. "require authentication") from the suffix.
-    ((
-      call
-      method: (identifier) @test.name (#match? @test.name "^it_requires_[a-z_]+$")
-      block: (_)
-    )) @test.definition
   ]]
 
   return lib.treesitter.parse_positions(file_path, query, {
@@ -151,13 +142,13 @@ function NeotestAdapter.build_spec(args)
 
     local pattern
     if run_patterns then
-      -- shoulda-matcher / it_requires_* form: the position name is the matcher source
-      -- expression, which can span multiple lines and contain unbalanced parens, colons,
-      -- quotes, etc. Piping that through full_spec_name / full_test_name /
-      -- full_shoulda_test_name produces malformed regex alternatives that minitest can't
-      -- match against anything (or worse, fails to parse). The runtime test method name
-      -- has no relationship to the source expression for these forms anyway — only the
-      -- description-derived prefix patterns do. Use those alone.
+      -- shoulda-matcher form: the position name is the matcher source expression, which
+      -- can span multiple lines and contain unbalanced parens, colons, quotes, etc.
+      -- Piping that through full_spec_name / full_test_name / full_shoulda_test_name
+      -- produces malformed regex alternatives that minitest can't match against anything
+      -- (or worse, fails to parse). The runtime test method name has no relationship to
+      -- the source expression for these forms anyway — only the description-derived
+      -- prefix patterns do. Use those alone.
       local alts = {}
       for _, run_pattern in ipairs(run_patterns) do
         -- gsub returns (str, count); wrap in parens so only the string is passed to
@@ -450,9 +441,9 @@ function NeotestAdapter._parse_test_output(output, name_mappings, prefix_mapping
 
     if pos_id then
       local new_status = status == "." and "passed" or "failed"
-      -- Composite helpers like `it_requires_all_auth` map several runtime tests to a
-      -- single pos_id. Preserve "failed" if it was already set so any sub-test failure
-      -- propagates to the line, rather than the last-processed sub-test winning.
+      -- Iteration-expanded shoulds map several runtime tests to a single pos_id (via
+      -- substring fallback). Preserve "failed" if it was already set so any sub-test
+      -- failure propagates to the line, rather than the last-processed sub-test winning.
       if not results[pos_id] or results[pos_id].status ~= "failed" then
         results[pos_id] = { status = new_status }
       end
@@ -531,9 +522,9 @@ function NeotestAdapter._make_status_stream(name_mappings, prefix_mappings, subs
           local pos_id = lookup_pos_id(test_name, name_mappings, prefix_mappings, substring_mappings)
           if pos_id then
             local new_status = status == "." and "passed" or "failed"
-            -- Same "failed sticks" semantic as _parse_test_output; needed so a composite
-            -- helper position that's already failed mid-stream doesn't flip back to
-            -- passed when a later sub-test passes.
+            -- Same "failed sticks" semantic as _parse_test_output; needed so an
+            -- iteration-expanded position that's already failed mid-stream doesn't flip
+            -- back to passed when a later sub-test passes.
             if not results[pos_id] or results[pos_id].status ~= "failed" then
               results[pos_id] = { status = new_status }
             end

@@ -221,42 +221,14 @@ M.shoulda_matcher_prefix = function(name)
   return nil
 end
 
--- Returns a list of description prefixes for an `it_requires_*` identifier.
--- Most helpers map to a single prefix (e.g. `it_requires_authentication` → `require
--- authentication`). Composites like `it_requires_all_auth` are project conventions that
--- internally call several sub-helpers — one source line produces multiple runtime tests
--- — so we register a prefix per sub-helper, all pointing at the same position id. A run
--- of the line passes only when all sub-tests pass; failing any one marks the line failed.
-M.it_requires_helper_prefixes = function(name)
-  local suffix = name:match("^it_requires_(.+)$")
-  if not suffix then return nil end
-
-  if suffix == "all_auth" then
-    return {
-      "require authentication",
-      "require authorization",
-      "require permission",
-    }
-  end
-
-  return { "require " .. suffix:gsub("_", " ") }
-end
-
--- Returns the list of expected runtime-method prefixes for a tree position whose `name`
--- is either a shoulda-matchers expression or an `it_requires_*` identifier. Most positions
--- produce one prefix; composite helpers produce several. Each prefix is the full
--- `<Class>#test_: <chain> should <description>` head; callers do prefix matching against
--- minitest verbose output to identify the runtime test, ignoring any per-call suffix
--- (matcher options or random hex).
+-- Returns the list of expected runtime-method prefixes for a shoulda-matchers test
+-- position. Each prefix is the full `<Class>#test_: <chain> should <description>` head;
+-- callers do prefix matching against minitest verbose output to identify the runtime
+-- test, ignoring any per-call suffix (matcher options).
 M.full_shoulda_prefixes = function(tree)
   local data = tree:data()
-  local descriptions
-  if data.name:match("^it_requires_") then
-    descriptions = M.it_requires_helper_prefixes(data.name)
-  else
-    local single = M.shoulda_matcher_prefix(data.name)
-    descriptions = single and { single } or nil
-  end
+  local single = M.shoulda_matcher_prefix(data.name)
+  local descriptions = single and { single } or nil
   if not descriptions then return nil end
 
   local namespaces = {}
@@ -323,13 +295,8 @@ end
 -- it omits the structural `#test_:` separator since the `.*` swallows it.
 M.full_shoulda_run_patterns = function(tree)
   local data = tree:data()
-  local descriptions
-  if data.name:match("^it_requires_") then
-    descriptions = M.it_requires_helper_prefixes(data.name)
-  else
-    local single = M.shoulda_matcher_prefix(data.name)
-    descriptions = single and { single } or nil
-  end
+  local single = M.shoulda_matcher_prefix(data.name)
+  local descriptions = single and { single } or nil
   if not descriptions then return nil end
 
   local class_name
@@ -353,8 +320,8 @@ M.get_mappings = function(tree)
   -- Returns three tables consulted by lookup_pos_id in order:
   --   * `mappings`   — exact `runtime_name -> pos_id`.
   --   * `prefixes`   — `runtime_prefix -> pos_id`; matched as a literal prefix of the
-  --                    runtime name. Used for shoulda-matchers / it_requires_* whose
-  --                    runtime names carry a varying suffix (matcher options, random hex).
+  --                    runtime name. Used for shoulda-matchers whose runtime names carry
+  --                    a varying suffix (chained options like `optional: true`).
   --   * `substrings` — `" should <name>." -> pos_id`; matched as a substring anywhere in
   --                    the runtime name. Used to map iteration-expanded should tests where
   --                    the context name is interpolated (e.g. `OPTIONS.each do |type|;
@@ -385,11 +352,8 @@ M.get_mappings = function(tree)
       end
 
       -- Register a substring fallback only for plain string-form `should "X"` positions
-      -- (skip matcher/helper forms, which have their own prefix infrastructure).
-      if not data.name:match("^it_requires_")
-        and not data.name:match("^not it_requires_")
-        and not M.shoulda_matcher_prefix(data.name)
-      then
+      -- (skip matcher forms, which have their own prefix infrastructure).
+      if not M.shoulda_matcher_prefix(data.name) then
         substrings[" should " .. data.name .. "."] = data.id
       end
     end

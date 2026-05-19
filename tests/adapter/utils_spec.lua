@@ -271,42 +271,6 @@ describe("get_mappings", function()
     assert.equals("TissueTest_belong_to_cycle", prefixes["TissueTest#test_: associations should belong to cycle"])
   end)
 
-  it("registers a prefix mapping for it_requires_* helpers", function()
-    local tree = Tree.from_list({
-      { id = "ControllerTest", name = "ControllerTest", type = "namespace" },
-      {
-        { id = "ControllerTest_update", name = "update", type = "namespace" },
-        { id = "ControllerTest_it_requires_authentication", name = "it_requires_authentication", type = "test" },
-      },
-    }, function(pos)
-      return pos.id
-    end)
-
-    local _, prefixes = utils.get_mappings(tree)
-
-    assert.equals(
-      "ControllerTest_it_requires_authentication",
-      prefixes["ControllerTest#test_: update should require authentication"]
-    )
-  end)
-
-  it("registers three prefix mappings for it_requires_all_auth, all pointing at the same position", function()
-    local tree = Tree.from_list({
-      { id = "ControllerTest", name = "ControllerTest", type = "namespace" },
-      {
-        { id = "ControllerTest_update", name = "update", type = "namespace" },
-        { id = "ControllerTest_all_auth", name = "it_requires_all_auth", type = "test" },
-      },
-    }, function(pos)
-      return pos.id
-    end)
-
-    local _, prefixes = utils.get_mappings(tree)
-
-    assert.equals("ControllerTest_all_auth", prefixes["ControllerTest#test_: update should require authentication"])
-    assert.equals("ControllerTest_all_auth", prefixes["ControllerTest#test_: update should require authorization"])
-    assert.equals("ControllerTest_all_auth", prefixes["ControllerTest#test_: update should require permission"])
-  end)
 end)
 
 describe("shoulda_matcher_prefix", function()
@@ -411,24 +375,20 @@ describe("permissive_should_pattern", function()
 end)
 
 describe("full_shoulda_run_patterns", function()
-  it("returns permissive regex patterns that tolerate module prefixes for class-level shoulds", function()
+  it("returns a permissive pattern for a class-level matcher", function()
     local tree = Tree.from_list({
-      { id = "NoteTemplatesContentControllerTest", name = "NoteTemplatesContentControllerTest", type = "namespace" },
-      { id = "NoteTemplatesContentControllerTest_all_auth", name = "it_requires_all_auth", type = "test" },
+      { id = "TissueTest", name = "TissueTest", type = "namespace" },
+      { id = "TissueTest_belong", name = "belong_to(:cycle)", type = "test" },
     }, function(pos)
       return pos.id
     end)
 
     local patterns = utils.full_shoulda_run_patterns(tree:children()[1])
 
-    assert.are.same({
-      "NoteTemplatesContentControllerTest.*should require authentication",
-      "NoteTemplatesContentControllerTest.*should require authorization",
-      "NoteTemplatesContentControllerTest.*should require permission",
-    }, patterns)
+    assert.are.same({ "TissueTest.*should belong to cycle" }, patterns)
   end)
 
-  it("returns a single pattern for a regular matcher", function()
+  it("returns a single pattern for a context-nested matcher", function()
     local tree = Tree.from_list({
       { id = "TissueTest", name = "TissueTest", type = "namespace" },
       {
@@ -439,14 +399,14 @@ describe("full_shoulda_run_patterns", function()
       return pos.id
     end)
 
-    -- Reach the test node: children()[1] is `associations`, then children()[1] of that is `belong_to`.
+    -- children()[1] is `associations`, then children()[1] of that is `belong_to`.
     local test_node = tree:children()[1]:children()[1]
     local patterns = utils.full_shoulda_run_patterns(test_node)
 
     assert.are.same({ "TissueTest.*should belong to cycle" }, patterns)
   end)
 
-  it("returns nil for non-matcher non-helper names", function()
+  it("returns nil for plain string-description positions (non-matcher)", function()
     local tree = Tree.from_list({
       { id = "Test", name = "Test", type = "namespace" },
       { id = "test", name = "ordinary string description", type = "test" },
@@ -455,30 +415,6 @@ describe("full_shoulda_run_patterns", function()
     end)
 
     assert.is_nil(utils.full_shoulda_run_patterns(tree:children()[1]))
-  end)
-end)
-
-describe("it_requires_helper_prefixes", function()
-  it("derives a single description from a simple helper identifier", function()
-    assert.are.same({ "require authentication" }, utils.it_requires_helper_prefixes("it_requires_authentication"))
-    assert.are.same({ "require authorization" }, utils.it_requires_helper_prefixes("it_requires_authorization"))
-    assert.are.same(
-      { "require admin permission" },
-      utils.it_requires_helper_prefixes("it_requires_admin_permission")
-    )
-  end)
-
-  it("expands it_requires_all_auth into its three constituent sub-helpers", function()
-    assert.are.same({
-      "require authentication",
-      "require authorization",
-      "require permission",
-    }, utils.it_requires_helper_prefixes("it_requires_all_auth"))
-  end)
-
-  it("returns nil for non-helper names", function()
-    assert.is_nil(utils.it_requires_helper_prefixes("do a thing"))
-    assert.is_nil(utils.it_requires_helper_prefixes("belong_to(:cycle)"))
   end)
 end)
 
