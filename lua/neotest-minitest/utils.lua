@@ -298,6 +298,17 @@ end
 -- shoulda-context injects into the description of class-level string-form shoulds
 -- (e.g. for `module Foo; class BarTest`, shoulda emits `Foo::BarTest#test_: Foo::Bar
 -- should X` and our literal `BarTest#test_: Bar should X` doesn't match as a substring).
+-- Regex metachars common in test descriptions that need escaping when they appear in
+-- user-authored content (test names, context names). Backslash itself escaped via
+-- "%%" so the resulting Lua string contains a single literal backslash. `?` is
+-- intentionally included here so callers can use this helper instead of escaping `?`
+-- separately downstream.
+local REGEX_METACHARS = "([%(%)%[%]%.%*%+%?%|%^%$%{%}\\])"
+
+local function escape_regex_metachars(str)
+  return (str:gsub(REGEX_METACHARS, "\\%1"))
+end
+
 M.permissive_should_pattern = function(tree)
   local data = tree:data()
   if data.type ~= "test" then return nil end
@@ -312,7 +323,10 @@ M.permissive_should_pattern = function(tree)
   end
   if not class_name then return nil end
 
-  return class_name .. ".*should " .. data.name
+  -- Escape regex metachars in the user-authored description so parens, dots, and
+  -- friends in test names don't get interpreted as regex syntax (the failure mode is
+  -- silent — minitest's --name filter just matches nothing).
+  return class_name .. ".*should " .. escape_regex_metachars(data.name)
 end
 
 -- Returns regex patterns suitable for minitest's `--name <regex>` filter for the same

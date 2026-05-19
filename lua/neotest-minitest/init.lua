@@ -187,9 +187,10 @@ function NeotestAdapter.build_spec(args)
       -- module-scoped classes (shoulda emits the module-prefixed class name in the
       -- description, which the literal full_shoulda_test_name above can't tolerate).
       -- Harmless for `test "X"`/`it "X"` positions — the runtime method name has no
-      -- `should` token so the regex doesn't match anything spurious.
+      -- `should` token so the regex doesn't match anything spurious. The returned
+      -- pattern already has regex metachars escaped in the description portion.
       if permissive then
-        pattern = pattern .. "|" .. (permissive:gsub("([?])", "\\%1"))
+        pattern = pattern .. "|" .. permissive
       end
       pattern = pattern .. "/"
     end

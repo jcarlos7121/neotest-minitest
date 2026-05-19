@@ -398,6 +398,20 @@ describe("permissive_should_pattern", function()
     )
   end)
 
+  it("escapes regex metachars in the description so parens etc. stay literal", function()
+    local tree = Tree.from_list({
+      { id = "ListenerTest", name = "ListenerTest", type = "namespace" },
+      { id = "ListenerTest_raise", name = "not sync patient data (or raise error)", type = "test" },
+    }, function(pos)
+      return pos.id
+    end)
+
+    assert.equals(
+      "ListenerTest.*should not sync patient data \\(or raise error\\)",
+      utils.permissive_should_pattern(tree:children()[1])
+    )
+  end)
+
   it("returns nil for namespace positions", function()
     local tree = Tree.from_list({
       { id = "ResolverTest", name = "ResolverTest", type = "namespace" },
