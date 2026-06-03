@@ -103,6 +103,26 @@ ShouldaTest#test_: addition should add two numbers.  = 0.00 s = .
       assert.equal("passed", results["pos_authz"].status)
     end)
 
+    it("pairs prerecord <name> = lines with later <time> s = <status> lines for system tests", function()
+      -- minitest's verbose Reporter prints `<name> = ` at test start (prerecord),
+      -- then `<time> s = <status>\n` at test end (record). For a system test where
+      -- Capybara/Puma writes between them, the lines are non-adjacent and the existing
+      -- walk-back-to-newline extraction lands on the Puma output, not the test name.
+      -- The prerecord-aware scan should bridge across the intervening lines.
+      local output =
+        "Patients::Inventories::V2::OocyteTissueFormTest#test_: Patients::Inventories::V2::OocyteTissueForm should toggle the v2 form.  = Capybara starting Puma...\n"
+        .. "* Version 7.2.0, codename: On The Corner\n"
+        .. "* Min threads: 0, max threads: 4\n"
+        .. "* Listening on http://0.0.0.0:31337\n"
+        .. " 1.55 s = .\n"
+
+      local results = plugin._parse_test_output(output, {
+        ["OocyteTissueFormTest#test_: OocyteTissueForm should toggle the v2 form."] = "pos_sys",
+      })
+
+      assert.equal("passed", results["pos_sys"].status)
+    end)
+
     it("maps iteration-generated runtime tests to a single source position via substring fallback", function()
       -- All four runtime tests share the description "apply the additional attributes to
       -- the container" but each has a different context-interpolated chain. The source

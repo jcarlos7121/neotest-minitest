@@ -376,6 +376,13 @@ end
 -- `=` and the `s` time-unit suffix are optional.
 local status_line_pattern = "%s*=?%s*[%d.]+%s*s?%s*=%s*([FE.])"
 
+-- Matches minitest verbose's prerecord output: `<class>#test_<method> = ` printed at the
+-- START of a test, before the test body runs. For tests with stdout interleaving
+-- (system tests with Capybara/Puma writing during the test) this line gets separated
+-- from its `<time> s = .` record line by intervening output; the prerecord pattern lets
+-- us pair them back up by scanning backward through the output.
+local prerecord_line_pattern = "([%w:][^=\n]-#test_[^=\n]+) = "
+
 local iter_test_output_status = function(output)
   local pattern = status_line_pattern
 
@@ -401,6 +408,23 @@ local iter_test_output_status = function(output)
       end
     end
     local test_name = string.sub(output, n_start, r_start - 1)
+
+    -- If the line immediately preceding the status doesn't look like a test method name
+    -- (e.g. system tests where Capybara/Puma stdout sits between minitest's prerecord
+    -- `<name> = ` line and the `<time> s = <status>` record line), scan backward through
+    -- the output for the most recent prerecord line and use that name instead. Bounded
+    -- by last_pos so we don't pick up a prerecord line that belongs to an already-paired
+    -- status.
+    if not test_name:match("#test_") then
+      local search_from = last_pos == 0 and 1 or last_pos
+      local pos = search_from
+      while pos < r_start do
+        local ns, ne, captured = string.find(output, prerecord_line_pattern, pos)
+        if not ns or ns >= r_start then break end
+        test_name = captured:gsub("%s+$", "")
+        pos = ne + 1
+      end
+    end
 
     -- keep track of last test result position
     last_pos = r_end
@@ -521,6 +545,11 @@ end
 function NeotestAdapter._make_status_stream(name_mappings, prefix_mappings, substring_mappings)
   return function(output_stream)
     local buffer = ""
+    -- Closure-scoped pending name: lets us carry minitest's prerecord output
+    -- (`<class>#test_<method> = `) from one streaming chunk forward to a later chunk
+    -- containing the matching `<time> s = <status>` record line. Needed for system tests
+    -- where Capybara/Puma writes between prerecord and record.
+    local pending_test_name = nil
 
     return function()
       local data = output_stream()
@@ -542,17 +571,33 @@ function NeotestAdapter._make_status_stream(name_mappings, prefix_mappings, subs
       local results = {}
       for _, raw_line in ipairs(lines) do
         local line = utils.strip_ansi_escape_codes(raw_line)
+
+        -- Detect prerecord lines and stash the name. A line can still match this
+        -- pattern when followed by stdout on the same line (e.g.
+        -- `<name> = Capybara starting Puma...`) because the lazy quantifier stops at
+        -- the first ` = `.
+        local prerecord_name = line:match(prerecord_line_pattern)
+        if prerecord_name then pending_test_name = prerecord_name:gsub("%s+$", "") end
+
         local r_start, _, status = line:find(status_line_pattern)
         if r_start and status then
-          local test_name = line:sub(1, r_start - 1)
-          local pos_id = lookup_pos_id(test_name, name_mappings, prefix_mappings, substring_mappings)
-          if pos_id then
-            local new_status = status == "." and "passed" or "failed"
-            -- Same "failed sticks" semantic as _parse_test_output; needed so a composite
-            -- helper position that's already failed mid-stream doesn't flip back to
-            -- passed when a later sub-test passes.
-            if not results[pos_id] or results[pos_id].status ~= "failed" then
-              results[pos_id] = { status = new_status }
+          local name_on_line = line:sub(1, r_start - 1)
+          local test_name = name_on_line:match("#test_") and name_on_line or pending_test_name
+
+          if test_name then
+            local pos_id = lookup_pos_id(test_name, name_mappings, prefix_mappings, substring_mappings)
+            if pos_id then
+              local new_status = status == "." and "passed" or "failed"
+              -- Same "failed sticks" semantic as _parse_test_output; needed so an
+              -- iteration-expanded position that's already failed mid-stream doesn't
+              -- flip back to passed when a later sub-test passes.
+              if not results[pos_id] or results[pos_id].status ~= "failed" then
+                results[pos_id] = { status = new_status }
+              end
+              -- Consume the pending name only if we used it; leave it in place if the
+              -- status line already had its own name (so we don't lose it for a later
+              -- multi-line pairing in the same chunk).
+              if test_name == pending_test_name then pending_test_name = nil end
             end
           end
         end
