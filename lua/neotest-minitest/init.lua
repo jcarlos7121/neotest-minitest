@@ -327,6 +327,12 @@ function NeotestAdapter.build_spec(args)
       -- chars including the runtime descriptions) without hitting OS-level PTY width
       -- limits that bite some setups when uint16 max is requested.
       strategy = { width = 1000 },
+      -- NEOTEST_MINITEST=1 signals to test_helper.rb that the run is coming from
+      -- neotest. Recommended pattern: gate minitest-reporters' early-test-name printing
+      -- (which interleaves with stdout from Capybara/Puma in system tests and breaks the
+      -- parser's name extraction) on this env var so vanilla minitest's record-at-end
+      -- reporter takes over for neotest runs only.
+      env = { NEOTEST_MINITEST = "1" },
       stream = stream,
     }
   end
