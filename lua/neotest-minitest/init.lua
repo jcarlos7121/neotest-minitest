@@ -317,6 +317,16 @@ function NeotestAdapter.build_spec(args)
         prefix_mappings = prefix_mappings,
         substring_mappings = substring_mappings,
       },
+      -- Neotest's integrated strategy runs the test process under a PTY which defaults
+      -- to terminal width (~80 cols) and wraps long lines. Shoulda-context test names
+      -- routinely exceed that (`Class#test_: ChainOfContexts should very long descriptive
+      -- name.`), and the parser walks back from `= 0.00 s = .` to the previous newline
+      -- to extract the test name — with line-wrap that newline lands inside the name,
+      -- leaving no extractable identifier and dropping the result to default-failed.
+      -- 1000 cols comfortably accommodates the longest realistic shoulda chain (~300
+      -- chars including the runtime descriptions) without hitting OS-level PTY width
+      -- limits that bite some setups when uint16 max is requested.
+      strategy = { width = 1000 },
       stream = stream,
     }
   end
